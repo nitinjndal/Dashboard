@@ -19,6 +19,11 @@ lib64/
 parts/
 sdist/
 var/
+bin/
+etc/
+share/
+Progress/
+LastGraphType
 wheels/
 pip-wheel-metadata/
 share/python-wheels/
