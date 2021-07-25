@@ -785,23 +785,26 @@ class Metrics2:
                 style=dict( display= "table",width='100%'),
             )
         )
+        style=dict(display='inline-table',width='24%' )
         save_layout=[ 
             html.Div(
                 [
-                    dbc.Button("Save", id="btn_save"),
-                    dcc.Input(id="input_save",type="text",placeholder="GraphName"),
-                    dbc.Button("Clear Filters", id="btn_clearFilters"),
+                    dbc.Button("Save", id="btn_save",style=dict(display='inline-table',width='10%' )),
+                    dcc.Input(id="input_save",type="text",placeholder="GraphName",style=dict(display='inline-table',width='25%' )),
+                    dbc.Button("Clear Filters", id="btn_clearFilters",style=dict(display='inline-table',width='10%' )),
                 ]
-                + [dcc.Textarea(
+                + [html.Div([dcc.Textarea(
                 id='textarea-filter',
+                wrap="off",
                 value='',
-                style={'width': '100%'}
+                style=dict(width='95%' )
+                )],style=dict(display='inline-table',width='95%' )
                 )]
-                + [dbc.Button("Advance "  +  "Filter", id="btn_advfilter")]
-                , style=dict(columnCount=4),
+                , style=dict(display= "table",width='100%'),
             )
         ]
-        divs = divs + self.layout1() + save_layout + self.filter_layout()   +self.dataframe_layout()
+        #divs = divs + self.layout1() + save_layout + self.filter_layout()   +self.dataframe_layout()
+        divs = divs + self.layout1() + save_layout   +self.dataframe_layout()
         divs.append(html.H2(" No of Records :  "))
         divs.append(html.H3(" - ",id="lbl_records"))
         ret=html.Div(divs,
@@ -1355,44 +1358,44 @@ if __name__ == "__main__":
  #   def saveGraph(clicks):
  #       return MC.ClrFilter_callback(clicks)
 
-    @app.callback([Output(x, 'style')
-                for x in ['container_num_filter', 'container_str_filter',
-                            'container_bool_filter', 'container_cat_filter',
-                            'container_date_filter']],
-                [Input('col_select', 'value')])
-    def dispaly_relevant_filter_container(col):
-        if col is None:
-            return [{'display': 'none'} for i in range(5)]
-        dtypes = [['int', 'float'], ['object'], ['bool'],
-                ['category'], ['datetime']]
-        result = [{'display': 'none'} if get_str_dtype(MC.plot_df, col) not in d
-                else {'display': 'inline-block',
-                        'margin-left': '7%',
-                        'width': '400px'} for d in dtypes]
-        return result
-
-    @app.callback(Output('rng_slider_vals', 'children'),
-                [Input('num_filter', 'value')])
-    def show_rng_slider_max_min(numbers):
-        if numbers is None:
-            raise dash.exceptions.PreventUpdate
-        return 'from:' + ' to: '.join([str(numbers[0]), str(numbers[-1])])
-
-
-    @app.callback([Output('num_filter', 'min'),
-                Output('num_filter', 'max'),
-                Output('num_filter', 'value')],
-                [Input('col_select', 'value')])
-    def set_rng_slider_max_min_val(column):
-        sample_df=MC.plot_df
-        if column is None:
-            raise dash.exceptions.PreventUpdate
-        if column and (get_str_dtype(sample_df, column) in ['int', 'float']):
-            minimum = sample_df[column].min()
-            maximum = sample_df[column].max()
-            return minimum, maximum, [minimum, maximum]
-        else:
-            return None, None, None
+#Adv_Filter  @app.callback([Output(x, 'style')
+#Adv_Filter              for x in ['container_num_filter', 'container_str_filter',
+#Adv_Filter                          'container_bool_filter', 'container_cat_filter',
+#Adv_Filter                          'container_date_filter']],
+#Adv_Filter              [Input('col_select', 'value')])
+#Adv_Filter  def dispaly_relevant_filter_container(col):
+#Adv_Filter      if col is None:
+#Adv_Filter          return [{'display': 'none'} for i in range(5)]
+#Adv_Filter      dtypes = [['int', 'float'], ['object'], ['bool'],
+#Adv_Filter              ['category'], ['datetime']]
+#Adv_Filter      result = [{'display': 'none'} if get_str_dtype(MC.plot_df, col) not in d
+#Adv_Filter              else {'display': 'inline-block',
+#Adv_Filter                      'margin-left': '7%',
+#Adv_Filter                      'width': '400px'} for d in dtypes]
+#Adv_Filter      return result
+#Adv_Filter
+#Adv_Filter  @app.callback(Output('rng_slider_vals', 'children'),
+#Adv_Filter              [Input('num_filter', 'value')])
+#Adv_Filter  def show_rng_slider_max_min(numbers):
+#Adv_Filter      if numbers is None:
+#Adv_Filter          raise dash.exceptions.PreventUpdate
+#Adv_Filter      return 'from:' + ' to: '.join([str(numbers[0]), str(numbers[-1])])
+#Adv_Filter
+#Adv_Filter
+#Adv_Filter  @app.callback([Output('num_filter', 'min'),
+#Adv_Filter              Output('num_filter', 'max'),
+#Adv_Filter              Output('num_filter', 'value')],
+#Adv_Filter              [Input('col_select', 'value')])
+#Adv_Filter  def set_rng_slider_max_min_val(column):
+#Adv_Filter      sample_df=MC.plot_df
+#Adv_Filter      if column is None:
+#Adv_Filter          raise dash.exceptions.PreventUpdate
+#Adv_Filter      if column and (get_str_dtype(sample_df, column) in ['int', 'float']):
+#Adv_Filter          minimum = sample_df[column].min()
+#Adv_Filter          maximum = sample_df[column].max()
+#Adv_Filter          return minimum, maximum, [minimum, maximum]
+#Adv_Filter      else:
+#Adv_Filter          return None, None, None
 
 
   #  @app.callback([Output('btn_advfilter', 'n_clicks')],
