@@ -32,7 +32,7 @@ import natsort
 
 
 class Metrics2:
-    def __init__(self, outdir):
+    def __init__(self, outdir,DashboardMode=False):
         self.init_constants()
         self.df=None
         self.newXAxisColName = "#"
@@ -40,6 +40,7 @@ class Metrics2:
         self.OutputDir = outdir
         self.LastGraphFile = "./LastGraphType"
         self.SavedGraphsFile = "./SavedGraphs"
+        self.ControlMode=not DashboardMode
 
 
         self.GlobalParams={}
@@ -77,6 +78,8 @@ class Metrics2:
         self.DF_read_copy = dict()
 
         self.Dashboard()
+        self.getGraphList()
+
         self.filtered_df = self.df.copy()
         self.plot_df=self.filtered_df
         self.initialize_figs()
@@ -85,6 +88,12 @@ class Metrics2:
         self.app.layout = html.Div(self.layout())
 
 
+
+    def getGraphList(self):           
+        self.GraphList=dict()
+        if os.path.exists(self.SavedGraphsFile):
+            with open(self.SavedGraphsFile) as json_file:
+                self.GraphList=json.load(json_file)  
 
     def get_Graphid(self):           
         x=self.GraphParams.copy()
@@ -714,6 +723,9 @@ class Metrics2:
             list_of_dic.append({"label": "None", "value": ""})
             for col in self.aggregateFuncs:
                 list_of_dic.append({"label": col, "value": col})
+        elif type == "SavedGraphNames":
+            for col in self.GraphList:
+                list_of_dic.append({"label": col, "value": col})
         else :
             for col in df.columns:
                 list_of_dic.append({"label": col, "value": col})
@@ -728,16 +740,28 @@ class Metrics2:
         divs.append(html.Div(id="hidden-div1", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Div(id="hidden-div2", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-input_dropdown_vals", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        if self.ControlMode:
+            disp='none'
+            disp='inline-table'
+        else:
+            disp='inline-table'
         divs.append(
             html.Div(
                 [
-                    html.Button("Refresh", id="refreshbtn", n_clicks=0),
-                    html.Button("Clear All", id="btn_clearall", n_clicks=0),
-                    html.Button("Download Excel", id="btn_download"),
+                    html.Button("Refresh", id="refreshbtn", n_clicks=0,style=dict(display='inline-table',width='10%')),
+                    html.Button("Clear All", id="btn_clearall", n_clicks=0,style=dict(display='inline-table',width='10%')),
+                    html.Button("Download Excel", id="btn_download",style=dict(display='inline-table',width='10%')),
+                    dcc.Dropdown(
+                        id="input_graphName",
+                        options=self.get_dropdown_values("SavedGraphNames"),
+                        value=None,
+                        multi=False,
+                        style=dict(display=disp,width='60%')
+                    ),
                     dcc.Download(id="download-dataframe-xlsx"),
                         
                 ],
-                style=dict(columnCount=4,height=50,width='100%',border="2px black solid"),
+                style=dict(display='table',width='100%')
             )
         )
 
@@ -766,26 +790,35 @@ class Metrics2:
                             style=dict(display='inline-table',width='35%')
                         ),
             )
+        if self.ControlMode:
+            disp1="table"
+        else:
+            disp1='none'
 
-        new_divs = html.Div(new_divs, style=dict(display= "table",width='100%'))
+        new_divs = html.Div(new_divs, style=dict(display=disp1,width='100%'))
         divs.append(new_divs)
+
+        if self.ControlMode:
+            disp='inline-table'
+        else:
+            disp='none'
 
         divs.append(
             html.Div(
                 [
-                    html.H3("Additional_Labels",style=dict(display='inline-table',width='15%')),
+                    html.H3("Additional_Labels",style=dict(display=disp,width='15%')),
                     dcc.Dropdown(
                         id="input_{}".format("Scatter_Labels"),
                         options=self.get_dropdown_values("Scatter_Labels"),
                         value=None,
                         multi=True,
-                        style=dict(display='inline-table',width='85%')
+                        style=dict(display=disp,width='85%')
                     ),
                 ],
                 style=dict( display= "table",width='100%'),
             )
         )
-        style=dict(display='inline-table',width='24%' )
+        style=dict(display=disp,width='24%' )
         save_layout=[ 
             html.Div(
                 [
@@ -798,9 +831,9 @@ class Metrics2:
                 wrap="off",
                 value='',
                 style=dict(width='95%' )
-                )],style=dict(display='inline-table',width='95%' )
+                )],style=dict(display=disp,width='95%' )
                 )]
-                , style=dict(display= "table",width='100%'),
+                , style=dict(display=disp1,width='100%'),
             )
         ]
         #divs = divs + self.layout1() + save_layout + self.filter_layout()   +self.dataframe_layout()
@@ -871,6 +904,10 @@ class Metrics2:
     def dataframe_layout(self):
         #for i in sorted(self.plot_df.columns):
            #print(i)
+        if self.ControlMode:
+            disp=None
+        else:
+            disp='none'
         columns=["","","","",""]
         if self.plot_df is not None:
             columns=self.plot_df.columns[:5]
@@ -895,12 +932,13 @@ class Metrics2:
                             style_table={ 'overflowX': 'scroll','overflowY': 'scroll'  }
                             
                         ),
-                        className="six columns",
+                        className="six columns", style=dict(display=disp)
                     ),
                     html.Div(
                         id="table-paging-with-graph-container", className="five columns"
                     ),
                 ],
+                    style={"display": None},
             )
         ]
         return html_divs
@@ -1081,20 +1119,6 @@ class Metrics2:
             retval.append(dash.no_update)
         return retval
 
-    def get_Inputs(self):
-        Inputs = list()
-        Inputs.append(Input("refreshbtn", "n_clicks"))
-        Inputs.append(Input("table-paging-with-graph", "page_current")),
-        Inputs.append(Input("table-paging-with-graph", "page_size")),
-        Inputs.append(Input("table-paging-with-graph", "sort_by")),
-        Inputs.append(Input('textarea-filter', 'n_blur')),
-        Inputs.append(Input("table-paging-with-graph", "filter_query"))
-        Inputs.append(Input("btn_clearFilters", "n_clicks"))
-        Inputs.append(State('textarea-filter', 'value'))
-        for txtbox in self.GraphParamsOrder:
-            Inputs.append(State("input_{}".format(txtbox), "value"))
-        Inputs.append(State("input_{}".format("Scatter_Labels"), "value"))
-        return Inputs
 
     def get_Outputs(self):
         Outputs = list()
@@ -1119,7 +1143,7 @@ class Metrics2:
     def get_Inputs(self):
         Inputs = list()
         Inputs.append(Input("refreshbtn", "n_clicks"))
-
+        Inputs.append(Input("input_graphName", "value")),
         Inputs.append(Input("table-paging-with-graph", "page_current")),
         Inputs.append(Input("table-paging-with-graph", "page_size")),
         Inputs.append(Input("table-paging-with-graph", "sort_by")),
@@ -1143,12 +1167,19 @@ class Metrics2:
         Scatter_Labels, filter,
         refresh_df,
         FirstLoad,
-        FilterUpdate
+        FilterUpdate,
+        showGraph
     ):
         print("FirstLoad=" + str(FirstLoad))
+        print("showGraph=" + str(showGraph))
         self.GlobalParams['columns_updated']=False
         retval = []
-        if refresh_df and Primary_Yaxis is not None:
+        if showGraph is not None:
+            self.GraphParams=self.GraphList[showGraph].copy()
+            self.update_aggregate()
+            refresh_df=True
+            FirstLoad=True
+        elif refresh_df and Primary_Yaxis is not None:
             self.GraphParams["Primary_Yaxis"] = Primary_Yaxis
             self.GraphParams["Xaxis"] = Xaxis
             self.GraphParams["GraphType"] = GraphType
@@ -1236,19 +1267,20 @@ def get_str_dtype(df, col):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description="Dashboard")
     argparser.add_argument(
-        "-outdir", metavar="OutputDir", required=True, help="DashboardDataDir"
-    )
+        "-outdir", metavar="OutputDir", required=True, help="DashboardDataDir")
+    argparser.add_argument(
+        "-DashboardMode", action='store_true', help="DashboardDataDir")
 
     args = argparser.parse_args()
 
     print("Start")
     assert os.path.exists(args.outdir)
-    MC = Metrics2(outdir=args.outdir)
+    MC = Metrics2(outdir=args.outdir,DashboardMode=args.DashboardMode)
     app = MC.app
 
     @app.callback(MC.get_Outputs(), MC.get_Inputs(),prevent_initial_callback=True)
     def update_output(
-        n_clicks,
+        n_clicks,graphname,
         page_current, page_size, sort_by, advfltr_click,
         filter_query,
         click_clrfilter,
@@ -1265,6 +1297,7 @@ if __name__ == "__main__":
         FirstLoad=False
         refresh_df=False
         FilterUpdate=False
+        showGraph=None
         #print("page_current=" + str(page_current))
         #print("p=" + str(page_size))
         #print("sort_by=" + str(sort_by))
@@ -1304,12 +1337,16 @@ if __name__ == "__main__":
                 filter=filter.strip()
         elif trig_id[0]=="btn_clearFilters":
             filter=""
+        elif trig_id[0]=="input_graphName":
+            if trig_id[1]==None:
+                raise dash.exceptions.PreventUpdate
+            showGraph=graphname
 
-        print("NITIn1234")
+        print("NITIn1234" + str(showGraph))
 
         t2=MC.refresh_callback( Xaxis, GraphType, Primary_Yaxis, Primary_Legends, Aggregate_Func, 
                                 Secondary_Legends, Scatter_Labels,  filter,refresh_df,
-                                FirstLoad,FilterUpdate)
+                                FirstLoad,FilterUpdate,showGraph)
         t1=[MC.update_table(page_current, page_size)]
         t3=[[{"name": i, "id": i} for i in sorted(MC.GlobalParams['Datatable_columns'])]]
 
@@ -1443,3 +1480,4 @@ if __name__ == "__main__":
 
   #  serve(app.server, host="0.0.0.0", port=8051)
     app.run_server(debug=True, port=8054)
+./
