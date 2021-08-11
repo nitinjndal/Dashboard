@@ -25,6 +25,14 @@ import textwrap
 from ordered_set import OrderedSet
 import natsort 
 
+debug=True
+
+def DebugMsg(msg1,msg2=None):
+    if debug:
+        print(msg1)
+        if msg2 is not None:
+            print(msg2)
+
 
 
 # assume you have a "long-form" data frame
@@ -229,14 +237,15 @@ class Metrics2:
                             'min',
                             'max'
                                 ]
-        self.GraphParamsOrder = [
+
+        self.GraphParamsOrder2 = [
             "Xaxis",
             "GraphType",
             "Primary_Yaxis",
             "Primary_Legends",
-            "Aggregate_Func",
-            "Secondary_Legends",
+            "Aggregate_Func"
         ]
+        self.GraphParamsOrder = self.GraphParamsOrder2 + [ "Secondary_Legends"]
 
         
 
@@ -943,17 +952,17 @@ class Metrics2:
         ]
         return html_divs
 
-    def update_inputs(self,n_clicks):
+    def update_inputs(self,FirstLoad):
         retval = []
         for txtbox in self.GraphParamsOrder:
-            if n_clicks > 0 :
-                retval.append(dash.no_update)
-            else:
+            if FirstLoad:
                 retval.append(self.GraphParams[txtbox])
-        if n_clicks > 0 :
-            retval.append(dash.no_update)
-        else:
+            else:
+                retval.append(dash.no_update)
+        if FirstLoad:
             retval.append(self.GraphParams["Scatter_Labels"])
+        else:
+            retval.append(dash.no_update)
         return retval
 
     def get_Outputs3(self):
@@ -1011,16 +1020,7 @@ class Metrics2:
                 self.GraphParams["Filters"] = ""
         return retval
 
-    def Sec_Legends_Outputs(self):
-        return Output("input_Secondary_Legends", "options")
 
-    def Sec_Legends_Inputs(self):
-        Inputs = list()
-        Inputs.append(Input("fig_" + self.get_groupid(""), "figure"))
-        return Inputs
-
-    def Sec_Legends_Callback(self):
-        return self.get_dropdown_values("Secondary_Legends")
 
 
     def get_Outputs5(self):
@@ -1096,7 +1096,7 @@ class Metrics2:
 
     def get_Outputs2(self):
         Outputs = list()
-        for txtbox in self.GraphParamsOrder:
+        for txtbox in self.GraphParamsOrder2:
             Outputs.append(Output("input_{}".format(txtbox), "options"))
         Outputs.append(Output("input_{}".format("Scatter_Labels"), "options"))
         return Outputs
@@ -1108,7 +1108,7 @@ class Metrics2:
 
     def callback_update_options(self,n_clicks):
         retval = list()
-        for txtbox in self.GraphParamsOrder:
+        for txtbox in self.GraphParamsOrder2:
             if n_clicks > 0:
                 retval.append(self.get_dropdown_values(txtbox,self.filtered_df))
             else:
@@ -1138,6 +1138,8 @@ class Metrics2:
             Outputs.append(Output("input_{}".format(txtbox), "value"))
         Outputs.append(Output("input_{}".format("Scatter_Labels"), "value"))
         Outputs.append(Output("hidden-input_dropdown_vals","n_clicks"))
+        Outputs.append(Output("input_graphName", "options"))
+        Outputs.append(Output("input_Secondary_Legends", "options"))
         return Outputs
 
     def get_Inputs(self):
@@ -1353,8 +1355,13 @@ if __name__ == "__main__":
         t4=[0]
         if MC.plot_df is not None:
             t4=[str(MC.plot_df.shape[0])]
-        t5=MC.update_inputs(n_clicks)
+
+        if (showGraph is not None) and MC.ControlMode:
+            FirstLoad=True
+
+        t5=MC.update_inputs(FirstLoad)
         retval=t1  + t2+t3 + t4 
+
         if FirstLoad:
             retval.append(MC.GraphParams['Filters'])
         else:
@@ -1366,6 +1373,9 @@ if __name__ == "__main__":
         else:
             retval.append(dash.no_update)
 
+        MC.getGraphList()
+        retval.append(MC.get_dropdown_values("SavedGraphNames"))
+        retval.append(MC.get_dropdown_values("Secondary_Legends"))
         return retval
 
     @app.callback(MC.get_Outputs2(), MC.get_Inputs2(),prevent_initial_callback=True)
