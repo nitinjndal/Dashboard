@@ -278,8 +278,9 @@ class Metrics2:
                 df=pd.read_csv(FileInfo['Path'], sep="\t")
 
             replace_dict=dict()
-            for nan_value in FileInfo['ReplaceWithNan'].split(","):
-                replace_dict[nan_value]=np.nan
+            if FileInfo['ReplaceWithNan'] is not None:
+                for nan_value in FileInfo['ReplaceWithNan'].split(","):
+                    replace_dict[nan_value]=np.nan
             df = df.replace(replace_dict)
             df = df.convert_dtypes()
             df = df.replace({pd.NA: np.nan})
