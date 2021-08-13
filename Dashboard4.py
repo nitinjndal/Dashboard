@@ -24,8 +24,12 @@ import math
 import textwrap
 from ordered_set import OrderedSet
 import natsort 
+from zipfile import ZipFile
+from bs4 import BeautifulSoup  # you also need to install "lxml" for the XML parser
+from tabulate import tabulate
 
-debug=True
+
+debug=False
 
 def DebugMsg(msg1,msg2=None):
     if debug:
@@ -34,18 +38,32 @@ def DebugMsg(msg1,msg2=None):
             print(msg2)
 
 
+def get_xlsx_sheet_names(xlsx_file):
+    with ZipFile(xlsx_file) as zipped_file:
+        summary = zipped_file.open(r'xl/workbook.xml').read()
+    soup = BeautifulSoup(summary, "html.parser")
+    sheets = [sheet.get("name") for sheet in soup.find_all("sheet")]
+    return sheets
+
 
 # assume you have a "long-form" data frame
 # see https://plotly.com/python/px-arguments/ for more options
 
 
+
 class Metrics2:
-    def __init__(self, outdir,DashboardMode=False):
+    def __init__(self,  datafile,isxlsx=False,sheetname=None,skiprows=0,replace_with_nan=None, DashboardMode=False,):
         self.init_constants()
+        self.fileMtimes = dict()
         self.df=None
         self.newXAxisColName = "#"
         self.DatatoDownload = None
-        self.OutputDir = outdir
+        self.DataFile = {'Path': datafile,
+                         'isXlsx':isxlsx,
+                         'Sheet': sheetname,
+                         'SkipRows': skiprows,
+                         'ReplaceWithNan' : replace_with_nan
+                        }
         self.LastGraphFile = "./LastGraphType"
         self.SavedGraphsFile = "./SavedGraphs"
         self.ControlMode=not DashboardMode
@@ -82,7 +100,6 @@ class Metrics2:
         self.update_aggregate()
         self.groups = [[json.dumps(self.GraphParams)]]
 
-        self.fileMtimes = dict()
         self.DF_read_copy = dict()
 
         self.Dashboard()
@@ -94,7 +111,6 @@ class Metrics2:
         #self.update_graph()
         self.app = dash.Dash()
         self.app.layout = html.Div(self.layout())
-
 
 
     def getGraphList(self):           
@@ -247,29 +263,37 @@ class Metrics2:
         ]
         self.GraphParamsOrder = self.GraphParamsOrder2 + [ "Secondary_Legends"]
 
-        
 
-    def setOutFile(self, filename):
-        return self.OutputDir + "/" + filename + ".csv"
+    def read_file_in_df(self,  FileInfo):
+        mtime = os.path.getmtime(FileInfo['Path'])
+        if FileInfo['Path'] not in self.fileMtimes:
+            self.fileMtimes[FileInfo['Path']] = 0
 
-    def read_file_in_df(self, filename):
-        mtime = os.path.getmtime(filename)
-        if filename not in self.fileMtimes:
-            self.fileMtimes[filename] = 0
+        if mtime > self.fileMtimes[FileInfo['Path']]:
+            print("Reading file " + str(FileInfo['Path'])  )
+            self.fileMtimes[FileInfo['Path']] = mtime
+            if FileInfo['isXlsx']:
+                df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'])
+            else:
+                df=pd.read_csv(FileInfo['Path'], sep="\t")
 
-        if mtime > self.fileMtimes[filename]:
-            print("Reading file " + str(filename)  )
-            self.fileMtimes[filename] = mtime
-            self.DF_read_copy[filename] = self.update_dtypes(pd.read_csv(filename, sep="\t"))
+            replace_dict=dict()
+            for nan_value in FileInfo['ReplaceWithNan'].split(","):
+                replace_dict[nan_value]=np.nan
+            df = df.replace(replace_dict)
+            df = df.convert_dtypes()
+            df = df.replace({pd.NA: np.nan})
+
+                
+            self.DF_read_copy[FileInfo['Path']] = self.update_dtypes(df)
             
         else:
             print("File not changed")
-        return self.DF_read_copy[filename].copy()
+        return self.DF_read_copy[FileInfo['Path']].copy()
 
     def Dashboard(self):
-        outfile = self.setOutFile("CombinedData_all")
         if self.df is None:
-            self.df = self.read_file_in_df(outfile)
+            self.df = self.read_file_in_df(self.DataFile)
         self.figs = dict()
 
     def get_groupid(self, group):
@@ -290,22 +314,37 @@ class Metrics2:
         if len(self.GraphParams["Xaxis"]) ==0 or  ( '#index' in self.GraphParams["Xaxis"]):
             df['#index']=df.index.copy()
             self.GraphParams["Xaxis"]=['#index']
+        DebugMsg("Test1",self.GraphParams['Xaxis'])
+        DebugMsg("Test1",self.GraphParams['Primary_Legends'])
         filters_tmp_p = self.GraphParams["Xaxis"] + self.GraphParams["Primary_Legends"]
         filters_tmp_p2=filters_tmp_p + keep_cols
+
+        DebugMsg("Test1 filters_tmp_p2",filters_tmp_p2)
+        DebugMsg("Test1 filters_tmp_p",filters_tmp_p)
+        DebugMsg("Test1 keep_cols",keep_cols)
+        DebugMsg("Test1 Primary_Yaxis",self.GraphParams["Primary_Yaxis"])
+        DebugMsg("Test1 Scatter_Labels",self.GraphParams["Scatter_Labels"])
         df1 = None
         if len(self.GraphParams["Primary_Yaxis"]) > 0:
             df_p = None
             if self.aggregate:
                 for col in self.GraphParams["Primary_Legends"]:
                         df[col] = df[col].astype(str).replace("nan", "#blank")
+                for col in (keep_cols + self.GraphParams["Scatter_Labels"] + self.GraphParams["Primary_Yaxis"]):
+                    df[col]=pd.to_numeric(df[col],errors='coerce')
                 df_p = (
-                    df[filters_tmp_p2 + self.GraphParams["Primary_Yaxis"] ].groupby(filters_tmp_p)
-                    .agg(self.GraphParams['Aggregate_Func'])[self.GraphParams["Primary_Yaxis"]]
-                    .reset_index()
+                    df[filters_tmp_p2 + self.GraphParams["Scatter_Labels"]+ self.GraphParams["Primary_Yaxis"] ].groupby(filters_tmp_p)
+                    .agg(self.GraphParams['Aggregate_Func'])
                 )
+                DebugMsg("df-p _ before index",df_p.head())
+                df_p=df_p.reset_index()
+                DebugMsg("df-p2",df_p.head())
+                df_p=df_p[ filters_tmp_p + self.GraphParams["Scatter_Labels"] + self.GraphParams["Primary_Yaxis"]]
+                DebugMsg("df-p",df_p.head())
             else:
                 if self.GraphParams['GraphType'] != 'Scatter' and self.hasDuplicates(df[filters_tmp_p]):
                     raise ValueError("Data contains duplicate values, Please use Aggregated Functions")
+
                 df_p = df[
                     OrderedSet(
                         filters_tmp_p2
@@ -541,13 +580,13 @@ class Metrics2:
                     )
                     custom_data = None
                     colno = 0
-                    if not self.aggregate:
-                        for col in self.GraphParams["Scatter_Labels"]:
-                            t.append(dftmp[col])
-                            hovertemplate = (
-                                hovertemplate + col + ": %{customdata[" + str(colno) + "]}<br>"
-                            )
-                            colno += 1
+                    #if not self.aggregate:
+                    for col in self.GraphParams["Scatter_Labels"]:
+                        t.append(dftmp[col])
+                        hovertemplate = (
+                            hovertemplate + col + ": %{customdata[" + str(colno) + "]}<br>"
+                        )
+                        colno += 1
 
                     if len(t) > 0:
                         custom_data = np.stack(tuple(t), axis=-1)
@@ -1174,7 +1213,9 @@ class Metrics2:
     ):
         print("FirstLoad=" + str(FirstLoad))
         print("showGraph=" + str(showGraph))
+
         self.GlobalParams['columns_updated']=False
+        DebugMsg("PrimaryLegends",Primary_Legends)
         retval = []
         if showGraph is not None:
             self.GraphParams=self.GraphList[showGraph].copy()
@@ -1200,6 +1241,12 @@ class Metrics2:
                 self.GraphParams["Filters"] = filter
         #print("SecondaryLegends")
         #print(self.GraphParams["Secondary_Legends"])
+        DebugMsg("Test0",self.GraphParams['Xaxis'])
+        DebugMsg("Test0",self.GraphParams['Primary_Legends'])
+
+        for col in ["Primary_Legends","Scatter_Labels","Secondary_Legends"]:
+            if self.GraphParams[col] is None:
+                self.GraphParams[col]=[]
 
 
         if refresh_df:
@@ -1269,15 +1316,47 @@ def get_str_dtype(df, col):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description="Dashboard")
     argparser.add_argument(
-        "-outdir", metavar="OutputDir", required=True, help="DashboardDataDir")
+        "-file", metavar="datafile.csv", required=True, help="DashboardDataDir")
     argparser.add_argument(
         "-DashboardMode", action='store_true', help="DashboardDataDir")
 
+    argparser.add_argument(
+        "-sheet", metavar="Sheet1",  default=None,
+        help="SheetName of the sheet in xlsx, used with -xlsx argument")
+
+    argparser.add_argument(
+        "-skiprows", metavar="0",  default=0,type=int, 
+        help="Number of rowsd to be skipped from top while reading sheet")
+
+    argparser.add_argument(
+        "-treat_as_missing_value", metavar="MISSING,NA",  default=None,
+        help="Values in data which should be treated as missing instead of a string")
+
+    argparser.add_argument(
+        "-isxlsx", action='store_true', help="If the input file is in xlsx form")
+
+    argparser.add_argument(
+        "-verbose", action='store_true', help="Enable detailed log")
+
+    argparser.add_argument(
+        "-debug", action='store_true', help="Enable Debugging mode")
+
     args = argparser.parse_args()
+    debug=args.debug
 
     print("Start")
-    assert os.path.exists(args.outdir)
-    MC = Metrics2(outdir=args.outdir,DashboardMode=args.DashboardMode)
+    assert os.path.exists(args.file)
+    if (args.isxlsx):
+        sheet_names=get_xlsx_sheet_names(args.file)
+        if len(sheet_names) > 1:
+            if args.sheet== None:
+                raise ValueError("xlsx files contains more than 1 sheet i.e " + 
+                        str(sheet_names) + "\n" + "Please specfy sheetname using -sheetname argument")
+
+
+
+    MC = Metrics2(datafile=args.file,isxlsx=args.isxlsx, sheetname=args.sheet, skiprows=args.skiprows, replace_with_nan=args.treat_as_missing_value ,DashboardMode=args.DashboardMode)
+
     app = MC.app
 
     @app.callback(MC.get_Outputs(), MC.get_Inputs(),prevent_initial_callback=True)
@@ -1294,7 +1373,25 @@ if __name__ == "__main__":
         Aggregate_Func,
         Secondary_Legends,
         Scatter_Labels,
+        trig_id=None
     ):
+
+        DebugMsg("DEBUG1: update_output(",
+       str(n_clicks) + "," + str(graphname) + "," + 
+         str(page_current) + ", " + str(page_size) + ", " + str(sort_by) + ", " + str(advfltr_click) + "," + 
+         str(filter_query) + "," + 
+         str(click_clrfilter) + "," + 
+         str(filter) + "," + 
+         str(Xaxis) + "," + 
+         str(GraphType) + "," + 
+         str(Primary_Yaxis) + "," + 
+         str(Primary_Legends) + "," + 
+         str(Aggregate_Func) + "," + 
+         str(Secondary_Legends) + "," + 
+         str(Scatter_Labels) +
+         ")"
+        )
+
 
         FirstLoad=False
         refresh_df=False
@@ -1307,7 +1404,8 @@ if __name__ == "__main__":
         #print("n_clicks=" + str(n_clicks))
         GraphType=GraphType
         retval=[]
-        trig_id =  dash.callback_context.triggered[0]['prop_id'].split('.')
+        if trig_id is None:
+            trig_id =  dash.callback_context.triggered[0]['prop_id'].split('.')
         print("trig_id=" + str(trig_id) + " Filter=" + filter)
         
         if trig_id[0] =="":
@@ -1489,4 +1587,6 @@ if __name__ == "__main__":
 
 
   #  serve(app.server, host="0.0.0.0", port=8051)
+    #update_output(1,None,0, 20, [], None,"",None,"",['mem_bucketed'],"Scatter",['CPU_TIME'],None,None,None,None,['refreshbtn', 'n_clicks'] )
+
     app.run_server(debug=True, port=8054)
