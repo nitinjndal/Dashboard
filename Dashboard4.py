@@ -258,6 +258,13 @@ class Metrics2:
                             'max'
                                 ]
 
+        self.NumericaggregateFuncs = [
+                            'mean',
+                            'sum',
+                            'std' ,
+                            'var',
+                            'sem',
+                                ]
         self.GraphParamsOrder2 = [
             "Xaxis",
             "GraphType",
@@ -288,8 +295,6 @@ class Metrics2:
             df = df.replace(replace_dict)
             df = df.convert_dtypes(convert_integer=False,convert_floating=False,convert_string=False)
             df = df.replace({pd.NA: np.nan})
-
-                
             self.DF_read_copy[FileInfo['Path']] = self.update_dtypes(df)
             
         else:
@@ -339,7 +344,9 @@ class Metrics2:
                         df[col] = df[col].astype(str).replace("nan", "#blank")
                 for col in (keep_cols + self.GraphParams["Scatter_Labels"] + self.GraphParams["Primary_Yaxis"]):
                     if col not in filters_tmp_p: 
-                        df[col]=pd.to_numeric(df[col],errors='coerce')
+                        if self.GraphParams['Aggregate_Func'] in self.NumericaggregateFuncs:
+                            df[col]=pd.to_numeric(df[col],errors='coerce')
+
                 df_p = (
                     df[ reqd_cols].groupby(filters_tmp_p)
                     .agg(self.GraphParams['Aggregate_Func'])
@@ -348,7 +355,7 @@ class Metrics2:
                 df_p=df_p[list(set(filters_tmp_p + self.GraphParams["Scatter_Labels"] + self.GraphParams["Primary_Yaxis"]))]
             else:
                 if self.GraphParams['GraphType'] != 'Scatter' and self.hasDuplicates(df[filters_tmp_p]):
-                    raise ValueError("Data contains duplicate values, Please use Aggregated Functions")
+                    raise ValueError("Data contains duplicate values, Please use Aggregated Functions or plot a scatter chart")
 
                 df_p = df[
                     OrderedSet(
@@ -416,6 +423,7 @@ class Metrics2:
         retval= re.sub("\&\&", "&",retval)
         retval= re.sub("\|\|", "|",retval)
         retval= re.sub("\s*contains\s*(\S*)", ".str.contains('\\1')",retval)
+        retval= retval.replace(".str.contains('#blank')",".isna()")
         DebugMsg("Filter Expr: " ,  retval)
         
         return retval
@@ -498,7 +506,7 @@ class Metrics2:
                 secondary_axis=False
                 if append_yaxis_name_in_legend:
                     if legend_name != "":
-                        legend_name=yaxis_col + "-" + legend_name
+                        legend_name=str(yaxis_col) + "-" + str(legend_name)
                     else:
                         legend_name=yaxis_col
 
@@ -715,7 +723,8 @@ class Metrics2:
                         if col not in self.df.columns:
                             self.df[col]=np.nan
                             self.GlobalParams['columns_updated']=True
-                        self.df.loc[df.index]=df
+                        if not self.aggregate:
+                            self.df.loc[df.index]=df
                         update_previous_operations=True
                 else:
                     print(df.dtypes)
@@ -804,6 +813,7 @@ class Metrics2:
         divs=[]
         divs.append(html.Div(id="hidden-div1", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Div(id="hidden-div2", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Div(id="hidden-div3", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-input_dropdown_vals", style={"display": "none",'width':'100%','border':'2px solid black'}))
         if self.ControlMode:
             disp='none'
@@ -814,7 +824,7 @@ class Metrics2:
             html.Div(
                 [
                     html.Button("Refresh", id="refreshbtn", n_clicks=0,style=dict(display='inline-table',width='10%')),
-                    html.Button("Clear All", id="btn_clearall", n_clicks=0,style=dict(display='inline-table',width='10%')),
+                    html.Button("Reset", id="btn_reset", n_clicks=0,style=dict(display='inline-table',width='10%')),
                     html.Button("Download Excel", id="btn_download",style=dict(display='inline-table',width='10%')),
                     dcc.Dropdown(
                         id="input_graphName",
@@ -1162,16 +1172,6 @@ class Metrics2:
         return Inputs
 
 
-    def get_OutputsClrAll(self):
-        Outputs = list()
-        Outputs.append(Output("input_{}".format("Scatter_Labels"), "options"))
-        return Outputs
-
-    def get_InputsClrAll(self):
-        Inputs = list()
-        Inputs.append(Input("btn_clearall", "n_clicks"))
-        return Inputs
-
     def callback_update_options(self,n_clicks):
         retval = list()
         for txtbox in self.GraphParamsOrder2:
@@ -1184,6 +1184,20 @@ class Metrics2:
         else:
             retval.append(dash.no_update)
         return retval
+
+    def get_OutputsReset(self):
+        return Output("hidden-div3", "children")
+
+    def get_InputsReset(self):
+        Inputs = list()
+        Inputs.append(Input("btn_reset", "n_clicks"))
+        return Inputs
+
+    def callbackReset(self,nclicks):
+        if nclicks>0:
+            self.GraphParams["PreviousOperations"] = []
+            self.df = self.read_file_in_df(self.DataFile)
+        return "" 
 
 
     def get_Outputs(self):
@@ -1526,6 +1540,10 @@ if __name__ == "__main__":
     def update_options( n_clicks):
         print("update oprions")
         return MC.callback_update_options(n_clicks)
+
+    @app.callback(MC.get_OutputsReset(), MC.get_InputsReset(),prevent_initial_callback=True)
+    def clearAl( n_clicks):
+        return MC.callbackReset(n_clicks)
 
     @app.callback(MC.get_Outputs3(), MC.get_Inputs3(), prevent_initial_call=True)
     def func(n_clicks):
