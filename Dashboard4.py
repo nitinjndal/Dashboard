@@ -28,7 +28,10 @@ from zipfile import ZipFile
 from bs4 import BeautifulSoup  # you also need to install "lxml" for the XML parser
 from tabulate import tabulate
 
-
+print("############################################")
+print("############################################")
+print("############################################")
+print("############################################")
 debug=False
 
 def DebugMsg(msg1,msg2=None):
@@ -96,6 +99,7 @@ class Metrics2:
             self.GraphParams["Filters"] = ""
             self.GraphParams["FilterAgregatedData"] = ""
             self.GraphParams["SortAgregatedData"] = ""
+            self.GraphParams["PreviousOperations"] = []
 
         self.update_aggregate()
         self.groups = [[json.dumps(self.GraphParams)]]
@@ -282,7 +286,7 @@ class Metrics2:
                 for nan_value in FileInfo['ReplaceWithNan'].split(","):
                     replace_dict[nan_value]=np.nan
             df = df.replace(replace_dict)
-            df = df.convert_dtypes()
+            df = df.convert_dtypes(convert_integer=False,convert_floating=False,convert_string=False)
             df = df.replace({pd.NA: np.nan})
 
                 
@@ -295,6 +299,7 @@ class Metrics2:
     def Dashboard(self):
         if self.df is None:
             self.df = self.read_file_in_df(self.DataFile)
+
         self.figs = dict()
 
     def get_groupid(self, group):
@@ -317,8 +322,8 @@ class Metrics2:
             self.GraphParams["Xaxis"]=['#index']
         DebugMsg("Test1",self.GraphParams['Xaxis'])
         DebugMsg("Test1",self.GraphParams['Primary_Legends'])
-        filters_tmp_p = self.GraphParams["Xaxis"] + self.GraphParams["Primary_Legends"]
-        filters_tmp_p2=filters_tmp_p + keep_cols
+        filters_tmp_p = list(set(self.GraphParams["Xaxis"] + self.GraphParams["Primary_Legends"]))
+        filters_tmp_p2=list(set(filters_tmp_p + keep_cols))
 
         DebugMsg("Test1 filters_tmp_p2",filters_tmp_p2)
         DebugMsg("Test1 filters_tmp_p",filters_tmp_p)
@@ -329,19 +334,18 @@ class Metrics2:
         if len(self.GraphParams["Primary_Yaxis"]) > 0:
             df_p = None
             if self.aggregate:
+                reqd_cols=list(set(filters_tmp_p2 + self.GraphParams["Scatter_Labels"]+ self.GraphParams["Primary_Yaxis"]))
                 for col in self.GraphParams["Primary_Legends"]:
                         df[col] = df[col].astype(str).replace("nan", "#blank")
                 for col in (keep_cols + self.GraphParams["Scatter_Labels"] + self.GraphParams["Primary_Yaxis"]):
-                    df[col]=pd.to_numeric(df[col],errors='coerce')
+                    if col not in filters_tmp_p: 
+                        df[col]=pd.to_numeric(df[col],errors='coerce')
                 df_p = (
-                    df[filters_tmp_p2 + self.GraphParams["Scatter_Labels"]+ self.GraphParams["Primary_Yaxis"] ].groupby(filters_tmp_p)
+                    df[ reqd_cols].groupby(filters_tmp_p)
                     .agg(self.GraphParams['Aggregate_Func'])
                 )
-                DebugMsg("df-p _ before index",df_p.head())
                 df_p=df_p.reset_index()
-                DebugMsg("df-p2",df_p.head())
-                df_p=df_p[ filters_tmp_p + self.GraphParams["Scatter_Labels"] + self.GraphParams["Primary_Yaxis"]]
-                DebugMsg("df-p",df_p.head())
+                df_p=df_p[list(set(filters_tmp_p + self.GraphParams["Scatter_Labels"] + self.GraphParams["Primary_Yaxis"]))]
             else:
                 if self.GraphParams['GraphType'] != 'Scatter' and self.hasDuplicates(df[filters_tmp_p]):
                     raise ValueError("Data contains duplicate values, Please use Aggregated Functions")
@@ -406,12 +410,13 @@ class Metrics2:
 
     def create_eval_func(self,filter_expr):
         retval=filter_expr
-        retval= re.sub("\{(\S*?)}(\s*=)","\\1\\2",retval,1)
+        DebugMsg("Filter Expr init: " ,  retval)
+        retval= re.sub("\{(\S*?)}(\s*=[^=])","\\1\\2",retval,1)
         retval= re.sub("\{(\S*?)}","df['\\1']",retval)
         retval= re.sub("\&\&", "&",retval)
         retval= re.sub("\|\|", "|",retval)
         retval= re.sub("\s*contains\s*(\S*)", ".str.contains('\\1')",retval)
-        #print("Filter Expr: " + retval)
+        DebugMsg("Filter Expr: " ,  retval)
         
         return retval
 
@@ -501,7 +506,7 @@ class Metrics2:
                     if yaxis_col in self.GraphParams['Secondary_Legends']:
                         secondary_axis=True
                         self.GlobalParams['SecAxisTitles'].add(yaxis_col)
-                    else:
+                    elif len(self.GraphParams['Secondary_Legends'])>0:
                         self.GlobalParams['PrimaryAxisTitles'].add(yaxis_col)
                 else:
                     self.GlobalParams['available_legends'].add(legend)
@@ -531,6 +536,7 @@ class Metrics2:
                     if legend=="#blank":
                        dftmp=df[df[PrimaryLegendsColName].isna()] 
                     else:
+                       DebugMsg("legends",df[PrimaryLegendsColName])  
                        dftmp = df[df[PrimaryLegendsColName] == legend]
                 if len(self.GraphParams["Xaxis"])>0:
                     dftmp =dftmp.sort_values( by=self.GraphParams["Xaxis"])
@@ -540,7 +546,7 @@ class Metrics2:
                     x=dftmp[self.newXAxisColName]
                     y=dftmp[yaxis_col]
                     fig.add_trace(
-                        PlotFunc( labels=x, values=y, hole=0.3,name=legend_name),1,col
+                        PlotFunc( labels=x, values=y, hole=0.3,name=str(legend_name)),1,col
                     )
 
                 elif (self.GraphParams["GraphType"] in  ["Bar","BarH", "BarStacked", "BarStackedH"]):
@@ -554,7 +560,7 @@ class Metrics2:
                         x=dftmp[yaxis_col]
                     fig.add_trace(
                         PlotFunc(
-                            x=x, y=y, name=legend_name,orientation=orient
+                            x=x, y=y, name=str(legend_name),orientation=orient
                         ),
                         secondary_y=secondary_axis,
                     )
@@ -563,7 +569,7 @@ class Metrics2:
                         PlotFunc(
                             x=dftmp[self.newXAxisColName],
                             y=dftmp[yaxis_col],
-                            name=legend_name,
+                            name=str(legend_name),
                             mode=mode,
                             stackgroup="one",
                         ),
@@ -596,7 +602,7 @@ class Metrics2:
                         PlotFunc(
                             x=dftmp[self.newXAxisColName],
                             y=dftmp[yaxis_col],
-                            name=legend_name,
+                            name=str(legend_name),
                             mode=mode,
                             customdata=custom_data,
                             hovertemplate=hovertemplate,
@@ -608,7 +614,7 @@ class Metrics2:
                         PlotFunc(
                             x=dftmp[self.newXAxisColName],
                             y=dftmp[yaxis_col],
-                            name=legend_name,
+                            name=str(legend_name),
                             mode=mode,
                         ),
                         secondary_y=secondary_axis,
@@ -684,9 +690,11 @@ class Metrics2:
         return ""
 
 
-    def filter_sort_df(self,df, filter):
-        filters=filter.split("\n")
+    def filter_sort_df(self,df, Allfilter, update_prev=True):
+        ## update_prev added to remove the recursive loop
+        filters=Allfilter.split("\n")
         step_cnt=0
+        update_previous_operations=False
         for filter in filters:
             step_cnt+=1
             print(str(step_cnt) + " " + str(self.create_eval_func(filter)))
@@ -699,14 +707,22 @@ class Metrics2:
                         ascending=[col["direction"] == "asc" for col in sort_by],
                         inplace=False,
                     )
-            #print(df.dtypes)
             elif filter != "":
                 filter_expr=self.create_eval_func(filter)
-                if "=" in  filter_expr:
+                if (re.match("^\s*\S*\s*=",filter_expr) and (not re.match("^\s*\S*\s*=\s*=",filter_expr) )) :
                     df=pd.eval(filter_expr,target=df)
-                    self.GlobalParams['columns_updated']=True
+                    for col in df.columns:
+                        if col not in self.df.columns:
+                            self.df[col]=np.nan
+                            self.GlobalParams['columns_updated']=True
+                        self.df.loc[df.index]=df
+                        update_previous_operations=True
                 else:
+                    print(df.dtypes)
                     df=df[pd.eval(filter_expr)]
+        if update_previous_operations and update_prev:
+            if len(self.GraphParams['PreviousOperations']) == 0  or self.GraphParams['PreviousOperations'][-1] != Allfilter:
+                self.GraphParams['PreviousOperations'].append(Allfilter)
         return df
 
 
@@ -979,7 +995,6 @@ class Metrics2:
                             style_data_conditional=self.create_conditional_style(),
                             fixed_rows={'headers': True, 'data': 0},
                             style_table={ 'overflowX': 'scroll','overflowY': 'scroll'  }
-                            
                         ),
                         className="six columns", style=dict(display=disp)
                     ),
@@ -1146,6 +1161,17 @@ class Metrics2:
         Inputs.append(Input("hidden-input_dropdown_vals", "n_clicks"))
         return Inputs
 
+
+    def get_OutputsClrAll(self):
+        Outputs = list()
+        Outputs.append(Output("input_{}".format("Scatter_Labels"), "options"))
+        return Outputs
+
+    def get_InputsClrAll(self):
+        Inputs = list()
+        Inputs.append(Input("btn_clearall", "n_clicks"))
+        return Inputs
+
     def callback_update_options(self,n_clicks):
         retval = list()
         for txtbox in self.GraphParamsOrder2:
@@ -1180,6 +1206,7 @@ class Metrics2:
         Outputs.append(Output("hidden-input_dropdown_vals","n_clicks"))
         Outputs.append(Output("input_graphName", "options"))
         Outputs.append(Output("input_Secondary_Legends", "options"))
+        Outputs.append(Output("table-paging-with-graph", "filter_query"))
         return Outputs
 
     def get_Inputs(self):
@@ -1254,6 +1281,15 @@ class Metrics2:
             self.Dashboard()
 #            self.filtered_df = self.df.copy()
 
+        if FirstLoad:
+            DebugMsg("FirstLoaf df",self.df)
+            for filter in self.GraphParams['PreviousOperations']:
+                self.filter_sort_df(self.df,filter,False)
+            DebugMsg("FirstLoad2 df",self.df)
+            if len(self.GraphParams['PreviousOperations'])> 0:
+                self.filtered_df = self.df.copy()
+
+
         if refresh_df or FilterUpdate:
             print("FilterUpdate=" + str(FilterUpdate))
             print(self.GraphParams["Filters"])
@@ -1269,6 +1305,7 @@ class Metrics2:
         if self.GraphParams["Primary_Yaxis"] is not None and len(self.GraphParams["Primary_Yaxis"])>0:
 #            pprint(self.GraphParams)
 #            print("self.aggregate2: " + str(self.aggregate))
+            DebugMsg("First Load PRevious Operations",self.filtered_df.columns)
             self.plot_df = self.extract_data(self.filtered_df, new_cols)
             if self.aggregate:
                 self.plot_df=self.filter_sort_df(self.plot_df,self.GraphParams["FilterAgregatedData"])
@@ -1398,6 +1435,7 @@ if __name__ == "__main__":
         refresh_df=False
         FilterUpdate=False
         showGraph=None
+        clearFilter=False
         #print("page_current=" + str(page_current))
         #print("p=" + str(page_size))
         #print("sort_by=" + str(sort_by))
@@ -1423,7 +1461,7 @@ if __name__ == "__main__":
                 print("update_inputs " + filter_query)
                 if not filter_query.isspace():
                     filter=filter.strip() 
-                    filter+= ("\n" + filter_query)
+                    filter+= ("\n" + re.sub("([^=><])=([^=])","\\1==\\2",filter_query))
             elif trig_id[1]=="sort_by":
                 print("update_inputs " + str(sort_by))
                 if not str(sort_by).isspace():
@@ -1431,13 +1469,14 @@ if __name__ == "__main__":
                     filter+= ("\nSortBy:" + json.dumps(sort_by))
             filter=filter.strip() 
 
-        elif trig_id[0]=="textarea-filter" and  trig_id[1]=="n_blur": 
-            if filter_query not in filter.split("\n"):
-                filter=filter.strip()
-                filter=filter + "\n" + filter_query
-                filter=filter.strip()
+#        elif trig_id[0]=="textarea-filter" and  trig_id[1]=="n_blur": 
+#            if filter_query not in filter.split("\n"):
+#                filter=filter.strip()
+#                filter=filter + "\n" + re.sub("=[^=]","==",filter_query)
+#                filter=filter.strip()
         elif trig_id[0]=="btn_clearFilters":
             filter=""
+            clearFilter=True
         elif trig_id[0]=="input_graphName":
             if trig_id[1]==None:
                 raise dash.exceptions.PreventUpdate
@@ -1464,17 +1503,23 @@ if __name__ == "__main__":
         if FirstLoad:
             retval.append(MC.GraphParams['Filters'])
         else:
-            retval.append(filter)
+            retval.append(filter)    
 
-        retval=retval+ t5
+
+        retval=retval+ t5 ## input boxes values
         if MC.GlobalParams['columns_updated']:
             retval.append(1)
         else:
-            retval.append(dash.no_update)
+            retval.append(1)
+            #retval.append(dash.no_update)
 
         MC.getGraphList()
         retval.append(MC.get_dropdown_values("SavedGraphNames"))
         retval.append(MC.get_dropdown_values("Secondary_Legends"))
+        if clearFilter:
+            retval.append("")
+        else:
+            retval.append(dash.no_update)
         return retval
 
     @app.callback(MC.get_Outputs2(), MC.get_Inputs2(),prevent_initial_callback=True)

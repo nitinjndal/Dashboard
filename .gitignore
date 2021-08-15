@@ -132,9 +132,11 @@ venv.bak/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+Files/
 
 # Pyre type checker
 .pyre/
 ToDo.txt
 SavedGraphs
 sample.csv
+.DS_Store
