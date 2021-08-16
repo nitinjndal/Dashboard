@@ -36,9 +36,10 @@ debug=False
 
 def DebugMsg(msg1,msg2=None):
     if debug:
-        print(msg1)
+        print(msg1,end=" " )
         if msg2 is not None:
             print(msg2)
+        print("")
 
 
 def get_xlsx_sheet_names(xlsx_file):
@@ -59,6 +60,7 @@ class Metrics2:
         self.init_constants()
         self.fileMtimes = dict()
         self.df=None
+        self.reset=False
         self.newXAxisColName = "#"
         self.DatatoDownload = None
         self.DataFile = {'Path': datafile,
@@ -85,21 +87,7 @@ class Metrics2:
                 self.GraphParams = json.load(json_file)
                 self.update_aggregate()
         else:
-            self.GraphParams["GraphId"] = ""
-            self.GraphParams["Name"] = ""
-            self.GraphParams["Xaxis"] = []
-            self.GraphParams["GraphType"] = "Scatter"
-            self.GraphParams["Primary_Yaxis"] = []
-            self.GraphParams["Primary_Legends"] = []
-            self.GraphParams["Aggregate_Func"] = []
-            self.GraphParams["Secondary_Legends"] = []
-            self.GraphParams["Aggregate"] = []
-            self.GraphParams["Scatter_Labels"] = []
-            self.GraphParams["SortBy"] = []
-            self.GraphParams["Filters"] = ""
-            self.GraphParams["FilterAgregatedData"] = ""
-            self.GraphParams["SortAgregatedData"] = ""
-            self.GraphParams["PreviousOperations"] = []
+            self.initialize_GraphParams()
 
         self.update_aggregate()
         self.groups = [[json.dumps(self.GraphParams)]]
@@ -115,6 +103,23 @@ class Metrics2:
         #self.update_graph()
         self.app = dash.Dash()
         self.app.layout = html.Div(self.layout())
+
+    def initialize_GraphParams(self):
+        self.GraphParams["GraphId"] = ""
+        self.GraphParams["Name"] = ""
+        self.GraphParams["Xaxis"] = []
+        self.GraphParams["GraphType"] = "Scatter"
+        self.GraphParams["Primary_Yaxis"] = []
+        self.GraphParams["Primary_Legends"] = []
+        self.GraphParams["Aggregate_Func"] = []
+        self.GraphParams["Secondary_Legends"] = []
+        self.GraphParams["Aggregate"] = []
+        self.GraphParams["Scatter_Labels"] = []
+        self.GraphParams["SortBy"] = []
+        self.GraphParams["Filters"] = ""
+        self.GraphParams["FilterAgregatedData"] = ""
+        self.GraphParams["SortAgregatedData"] = ""
+        self.GraphParams["PreviousOperations"] = []
 
 
     def getGraphList(self):           
@@ -341,8 +346,8 @@ class Metrics2:
             df_p = None
             if self.aggregate:
                 reqd_cols=list(set(filters_tmp_p2 + self.GraphParams["Scatter_Labels"]+ self.GraphParams["Primary_Yaxis"]))
-                for col in self.GraphParams["Primary_Legends"]:
-                        df[col] = df[col].astype(str).replace("nan", "#blank")
+#                for col in self.GraphParams["Primary_Legends"]:
+#                        df[col] = df[col].astype(str).replace("nan", "#blank")
                 for col in (keep_cols + self.GraphParams["Scatter_Labels"] + self.GraphParams["Primary_Yaxis"]):
                     if col not in filters_tmp_p: 
                         if self.GraphParams['Aggregate_Func'] in self.NumericaggregateFuncs:
@@ -367,6 +372,7 @@ class Metrics2:
                 ]
                 #pass
             df1 = df_p
+        DebugMsg("Test1 Aggrega",self.GraphParams["Aggregate_Func"])
 
         # fig = make_subplots()
         if df1 is not None:
@@ -461,6 +467,7 @@ class Metrics2:
             return fig
 
         PrimaryLegendsColName,legends=self.get_legends(df,legend_cols)
+        DebugMsg("UPdate Fig Legends",legends)
         if PrimaryLegendsColName is not None:
             self.GlobalParams['LegendTitle']=PrimaryLegendsColName
 
@@ -468,13 +475,20 @@ class Metrics2:
         if len(yaxis_cols) > 1:
             append_yaxis_name_in_legend=True
 
+        DebugMsg("UPdate Fig Legends2",legends)
+
         PlotFunc = self.GraphTypeMap[self.GraphParams["GraphType"]]
         mode = self.GraphModeMap[self.GraphParams["GraphType"]]
 
         no_of_legends=len(yaxis_cols)
+        DebugMsg("UPdate no_of_legends yaxiscols",yaxis_cols)
         if len(legends) > 0 :
             no_of_legends=len(legends)* len(yaxis_cols)
         col=0
+        DebugMsg("UPdate legends)",legends)
+        DebugMsg("UPdate len(legends)",len(legends))
+        DebugMsg("UPdate len(yaxis_cols)",len(yaxis_cols))
+        DebugMsg("UPdate no_of_legends Legends2",no_of_legends)
 
         if (self.GraphParams["GraphType"] in  ["Pie"]):
             legend_names=[]
@@ -485,6 +499,7 @@ class Metrics2:
                     legend_names.append(legend_name)
                 for legend in legends:
                     legend_name=legend
+                    DebugMsg("LegendName",legend)
                     if append_yaxis_name_in_legend:
                         if legend_name != "":
                             legend_name=yaxis_col + "<br>" + legend_name
@@ -722,10 +737,11 @@ class Metrics2:
                     df=pd.eval(filter_expr,target=df)
                     for col in df.columns:
                         if col not in self.df.columns :
-                            if not self.aggregate:
+                            if (not self.aggregate) or (not update_prev):
                                 self.df[col]=np.nan
                             self.GlobalParams['columns_updated']=True
-                    if not self.aggregate:
+                    if (not self.aggregate) or (not update_prev):
+                        DebugMsg("updated df.index")
                         self.df.loc[df.index]=df
                         update_previous_operations=True
                 else:
@@ -1134,7 +1150,7 @@ class Metrics2:
             return list1
         try:
             if math.isnan(list1):
-                return '#blank'
+                return ['#blank']
             else:
                 return list1
         except:
@@ -1164,6 +1180,7 @@ class Metrics2:
 
 
     def callback_update_options(self,n_clicks):
+        DebugMsg("callback_update_options n_clicks" , n_clicks)
         retval = list()
         for txtbox in self.GraphParamsOrder2:
             if n_clicks > 0:
@@ -1177,7 +1194,7 @@ class Metrics2:
         return retval
 
     def get_OutputsReset(self):
-        return Output("hidden-div3", "children")
+        return Output("refreshbtn", "n_clicks")
 
     def get_InputsReset(self):
         Inputs = list()
@@ -1185,10 +1202,12 @@ class Metrics2:
         return Inputs
 
     def callbackReset(self,nclicks):
+        DebugMsg("Reset Done")
         if nclicks>0:
-            self.GraphParams["PreviousOperations"] = []
+            self.reset=True
+            self.initialize_GraphParams()
             self.df = self.read_file_in_df(self.DataFile)
-        return "" 
+        return 0
 
 
     def get_Outputs(self):
@@ -1246,15 +1265,21 @@ class Metrics2:
     ):
         print("FirstLoad=" + str(FirstLoad))
         print("showGraph=" + str(showGraph))
+        print("refresh_df=" + str(refresh_df))
 
         self.GlobalParams['columns_updated']=False
         DebugMsg("PrimaryLegends",Primary_Legends)
         retval = []
-        if showGraph is not None:
+        if self.reset :
+            pass
+        elif showGraph is not None:
             self.GraphParams=self.GraphList[showGraph].copy()
             self.update_aggregate()
             refresh_df=True
             FirstLoad=True
+        elif FirstLoad and os.path.exists(self.LastGraphFile):
+            print("Reading First Load" )
+            self.read_lastGraphFile()
         elif refresh_df and Primary_Yaxis is not None:
             self.GraphParams["Primary_Yaxis"] = Primary_Yaxis
             self.GraphParams["Xaxis"] = Xaxis
@@ -1263,9 +1288,6 @@ class Metrics2:
             self.GraphParams["Aggregate_Func"] = Aggregate_Func
             self.GraphParams["Secondary_Legends"] = Secondary_Legends
             self.GraphParams["Scatter_Labels"] = Scatter_Labels
-        elif FirstLoad and os.path.exists(self.LastGraphFile):
-            print("Reading First Load" )
-            self.read_lastGraphFile()
         elif FilterUpdate:
             if self.aggregate:
                 self.GraphParams["FilterAgregatedData"] = filter
@@ -1328,9 +1350,10 @@ class Metrics2:
                 if not col.startswith('#'):
                     self.GlobalParams['Datatable_columns'].append(col)
 
-        if not FirstLoad:
+        if (not FirstLoad) and (not self.reset):
             with open(MC.LastGraphFile, "w") as outfile:
                 json.dump(MC.GraphParams, outfile)
+        self.reset=False
 
         for group in self.groups:
             grpid = self.get_groupid(group)
@@ -1486,6 +1509,7 @@ if __name__ == "__main__":
             if trig_id[1]==None:
                 raise dash.exceptions.PreventUpdate
             showGraph=graphname
+        DebugMsg("#### DEBUG RETVAL", retval)
 
         MC.update_aggregate(Aggregate_Func,new_update=True)
 
@@ -1498,6 +1522,7 @@ if __name__ == "__main__":
         t3=[[{"name": i, "id": i} for i in sorted(MC.GlobalParams['Datatable_columns'])]]
 
         t4=[0]
+        DebugMsg("#### DEBUG RETVAL", retval)
         if MC.plot_df is not None:
             t4=[str(MC.plot_df.shape[0])]
 
@@ -1521,6 +1546,8 @@ if __name__ == "__main__":
             retval.append(1)
         else:
             retval.append(1)
+
+        DebugMsg("#### DEBUG RETVAL", retval)
             #retval.append(dash.no_update)
 
         MC.getGraphList()
@@ -1534,7 +1561,9 @@ if __name__ == "__main__":
 
     @app.callback(MC.get_Outputs2(), MC.get_Inputs2(),prevent_initial_callback=True)
     def update_options( n_clicks):
-        print("update oprions")
+        DebugMsg("update oprions", n_clicks)
+        if n_clicks is None:
+            n_clicks=0
         return MC.callback_update_options(n_clicks)
 
     @app.callback(MC.get_OutputsReset(), MC.get_InputsReset(),prevent_initial_callback=True)
