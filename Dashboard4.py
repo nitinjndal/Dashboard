@@ -335,6 +335,7 @@ class Metrics2:
         DebugMsg("Test1 keep_cols",keep_cols)
         DebugMsg("Test1 Primary_Yaxis",self.GraphParams["Primary_Yaxis"])
         DebugMsg("Test1 Scatter_Labels",self.GraphParams["Scatter_Labels"])
+        DebugMsg("Test1 Aggrega",self.GraphParams["Aggregate_Func"])
         df1 = None
         if len(self.GraphParams["Primary_Yaxis"]) > 0:
             df_p = None
@@ -720,11 +721,12 @@ class Metrics2:
                 if (re.match("^\s*\S*\s*=",filter_expr) and (not re.match("^\s*\S*\s*=\s*=",filter_expr) )) :
                     df=pd.eval(filter_expr,target=df)
                     for col in df.columns:
-                        if col not in self.df.columns:
-                            self.df[col]=np.nan
+                        if col not in self.df.columns :
+                            if not self.aggregate:
+                                self.df[col]=np.nan
                             self.GlobalParams['columns_updated']=True
-                        if not self.aggregate:
-                            self.df.loc[df.index]=df
+                    if not self.aggregate:
+                        self.df.loc[df.index]=df
                         update_previous_operations=True
                 else:
                     print(df.dtypes)
@@ -1045,24 +1047,6 @@ class Metrics2:
         )
         return retval
 
-    def get_Outputs4(self):
-        return Output("hidden-div1", "children")
-
-    def get_Inputs4(self):
-        Inputs = list()
-        Inputs.append(Input("input_Aggregate_Func", "value"))
-        return Inputs
-
-    def refresh_callback4(self, agg_value):
-        retval = None
-        if agg_value is None or agg_value == '' or agg_value==[]  :
-            self.aggregate = False
-            self.GraphParams["Aggregate"] = "No"
-        else:
-            self.aggregate = True
-            self.GraphParams["Aggregate"] = "Yes"
-        return retval
-
     def ClrFilter_Outputs(self):
         return Output("table-paging-with-graph", "filter_query")
 
@@ -1118,7 +1102,14 @@ class Metrics2:
             self.GraphParams = json.load(json_file)
             self.update_aggregate()
 
-    def update_aggregate(self):
+
+    def update_aggregate(self,agg_value=None, new_update=False):
+        if new_update:
+            if agg_value is None or agg_value == '' or agg_value==[]  :
+                self.GraphParams["Aggregate"] = "No"
+            else:
+                self.GraphParams["Aggregate"] = "Yes"
+
         if self.GraphParams["Aggregate"] == "Yes":
             self.aggregate = True
         else:
@@ -1297,10 +1288,10 @@ class Metrics2:
 
         if FirstLoad:
             DebugMsg("FirstLoaf df",self.df)
-            for filter in self.GraphParams['PreviousOperations']:
-                self.filter_sort_df(self.df,filter,False)
-            DebugMsg("FirstLoad2 df",self.df)
             if len(self.GraphParams['PreviousOperations'])> 0:
+                for filter in self.GraphParams['PreviousOperations']:
+                    self.filter_sort_df(self.df,filter,False)
+                DebugMsg("FirstLoad2 df",self.df)
                 self.filtered_df = self.df.copy()
 
 
@@ -1496,6 +1487,8 @@ if __name__ == "__main__":
                 raise dash.exceptions.PreventUpdate
             showGraph=graphname
 
+        MC.update_aggregate(Aggregate_Func,new_update=True)
+
         print("NITIn1234" + str(showGraph))
 
         t2=MC.refresh_callback( Xaxis, GraphType, Primary_Yaxis, Primary_Legends, Aggregate_Func, 
@@ -1515,7 +1508,10 @@ if __name__ == "__main__":
         retval=t1  + t2+t3 + t4 
 
         if FirstLoad:
-            retval.append(MC.GraphParams['Filters'])
+            if MC.aggregate:
+                retval.append(MC.GraphParams['FilterAgregatedData'])
+            else:
+                retval.append(MC.GraphParams['Filters'])
         else:
             retval.append(filter)    
 
@@ -1551,9 +1547,9 @@ if __name__ == "__main__":
             MC.plot_df.to_excel, "data.xlsx", sheet_name="Sheet1"
         )
 
-    @app.callback(MC.get_Outputs4(), MC.get_Inputs4())
-    def agg_chkbox(value):
-        return MC.refresh_callback4(value)
+#    @app.callback(MC.get_Outputs4(), MC.get_Inputs4())
+#    def agg_chkbox(value):
+#        return MC.refresh_callback4(value)
 
     @app.callback(MC.get_Outputs5(), MC.get_Inputs5(),prevent_initial_callback=True)
     def saveGraph(clicks,value):
