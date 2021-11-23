@@ -29,6 +29,9 @@ from bs4 import BeautifulSoup  # you also need to install "lxml" for the XML par
 from tabulate import tabulate
 from collections import OrderedDict
 
+from pandas.api.types import is_string_dtype
+from pandas.api.types import is_numeric_dtype
+
 
 print("############################################")
 print("############################################")
@@ -102,6 +105,7 @@ class Metrics2:
 
         self.filtered_df = self.df.copy()
         self.plot_df=self.filtered_df
+        self.table_df=self.filtered_df
         self.initialize_figs()
         #self.update_graph()
         self.app = dash.Dash()
@@ -420,9 +424,38 @@ class Metrics2:
 
         return [None] * 3
 
-    def create_eval_func(self,filter_expr):
+    def create_eval_func(self,df,filter_expr):
         retval=filter_expr
         DebugMsg("Filter Expr init: " ,  retval)
+        
+        mathces= re.findall("(\{)(\S*?)(}\s+contains\s+)(\S*)",retval)
+        print(mathces)
+        for groups in mathces:
+            print(groups[0])
+            print(groups[1])
+            print(groups[2])
+            print(groups[3])
+            if is_numeric_dtype(df[groups[1]]):
+                retval=retval.replace("".join(groups),"{" + groups[1] + "} == " + groups[3] )
+                print(retval)
+                
+
+
+
+        retval= re.sub("\{(\S*?)}(\s*=[^=])","\\1\\2",retval,1)
+        retval= re.sub("\{(\S*?)}","df['\\1']",retval)
+        retval= re.sub("\&\&", "&",retval)
+        retval= re.sub("\|\|", "|",retval)
+        retval= re.sub("\s*contains\s*(\S*)", ".str.contains('\\1')",retval)
+        retval= retval.replace(".str.contains('#blank')",".isna()")
+        DebugMsg("Filter Expr: " ,  retval)
+        
+        return retval
+
+    def create_eval_func2(self,filter_expr):
+        retval=filter_expr
+        DebugMsg("Filter Expr init: " ,  retval)
+
         retval= re.sub("\{(\S*?)}(\s*=[^=])","\\1\\2",retval,1)
         retval= re.sub("\{(\S*?)}","df['\\1']",retval)
         retval= re.sub("\&\&", "&",retval)
@@ -721,7 +754,7 @@ class Metrics2:
         for filter in filters:
             step_cnt+=1
             DebugMsg("Filter= " + filter)
-            filter_expr=self.create_eval_func(filter)
+            filter_expr=self.create_eval_func(df,filter)
             print("Step " + str(step_cnt) + " :: " + str(filter_expr))
             if filter.startswith("SortBy:"):
                 filter=re.sub("^SortBy:","",filter)
@@ -805,6 +838,7 @@ class Metrics2:
             df=self.filtered_df
         else:
             df=self.plot_df
+        self.table_df=df
 
         retval=df.iloc[
             page_current * page_size : (page_current + 1) * page_size
@@ -840,6 +874,126 @@ class Metrics2:
             for col in df.columns:
                 list_of_dic.append({"label": col, "value": col})
         return list_of_dic
+
+    def layout_tab(self,display):
+        selected_tab='tab-basic'
+        tabs=html.Div([
+            dcc.Tabs(
+                id="tabs-with-classes",
+                value=selected_tab,
+                parent_className='custom-tabs',
+                className='custom-tabs-container',
+                children=[
+                    dcc.Tab(
+                        label='Basic',
+                        value='tab-basic',
+                        className='custom-tab',
+                        selected_className='custom-tab--selected',
+                    ),
+                    dcc.Tab(
+                        label='Advanced',
+                        value='tab-2',
+                        className='custom-tab',
+                        selected_className='custom-tab--selected'
+                    ),
+                    dcc.Tab(
+                        label='Tab three, multiline',
+                        value='tab-3', className='custom-tab',
+                        selected_className='custom-tab--selected'
+                    ),
+                    dcc.Tab(
+                        label='Tab four',
+                        value='tab-4',
+                        className='custom-tab',
+                        selected_className='custom-tab--selected'
+                    ),
+                ]),
+            html.Div(id='tabs-content-classes',children=self.render_tab_content(selected_tab))
+        ], 
+        style=dict(display=display,width='100%')
+        )
+        return tabs
+
+
+    def get_Outputs_tab(self):
+        return Output('tabs-content-classes', 'children')
+
+    def get_Inputs_tab(self):
+        return Input('tabs-with-classes', 'value')
+
+    def render_tab_content(self,tab):
+        if tab == 'tab-basic':
+            return self.layout_tab1() 
+        elif tab == 'tab-2':
+            return html.Div([
+                html.H3('Tab content 2')
+            ])
+        elif tab == 'tab-3':
+            return html.Div([
+                html.H3('Tab content 3')
+            ])
+        elif tab == 'tab-4':
+            return html.Div([
+                html.H3('Tab content 4')
+            ])
+
+
+    
+    def layout_tab1(self):
+        divs=[]
+        new_divs = []
+        tab1_display="inline-table"
+        if self.ControlMode:
+            disp1="table"
+            disp='inline-table'
+        else:
+            disp1='none'
+            disp='none'
+        for txtbox in self.GraphParamsOrder:
+            multi=True
+            clearable=True
+            def_value=None
+            if txtbox=="GraphType" or txtbox=="Aggregate_Func":
+                multi=False
+            if txtbox=="GraphType" :
+                clearable=False
+                def_value="Scatter"
+            new_divs.append( html.H3(txtbox,style=dict(display=tab1_display,width='15%')))
+            new_divs.append(
+                        dcc.Dropdown(
+                            id="input_{}".format(txtbox),
+                            options=self.get_dropdown_values(txtbox),
+                            value=def_value,
+                            multi=multi,
+                            clearable=clearable,
+                            style=dict(display=tab1_display,width='35%')
+                        ),
+            )
+
+
+        new_divs = html.Div(new_divs, style=dict(display=disp1,width='100%'))
+        divs.append(new_divs)
+
+        divs.append(
+            html.Div(
+                [
+                    html.H3("Additional_Labels",style=dict(display=disp,width='15%')),
+                    dcc.Dropdown(
+                        id="input_{}".format("Scatter_Labels"),
+                        options=self.get_dropdown_values("Scatter_Labels"),
+                        value=None,
+                        multi=True,
+                        style=dict(display=disp,width='85%')
+                    ),
+                ],
+                style=dict( display= "table",width='100%'),
+            )
+        )
+        divs=html.Div(divs)
+        return divs
+
+
+
     
     def layout(self):
         if self.aggregate:
@@ -851,11 +1005,20 @@ class Metrics2:
         divs.append(html.Div(id="hidden-div2", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Div(id="hidden-div3", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-input_dropdown_vals", style={"display": "none",'width':'100%','border':'2px solid black'}))
+
+
         if self.ControlMode:
             disp='none'
             disp='inline-table'
         else:
             disp='inline-table'
+
+        if self.ControlMode:
+            disp1="table"
+        else:
+            disp1='none'
+    
+
         divs.append(
             html.Div(
                 [
@@ -876,60 +1039,58 @@ class Metrics2:
             )
         )
 
-        #divs.append(html.Button("Download Excel", id="btn_download2"))
-        #divs.append(html.Button("Download Excel", id="btn_download3"))
+        divs.append(self.layout_tab(disp1))
+
 
         new_divs = []
-        for txtbox in self.GraphParamsOrder:
-            multi=True
-            clearable=True
-            def_value=None
-            if txtbox=="GraphType" or txtbox=="Aggregate_Func":
-                multi=False
-            if txtbox=="GraphType" :
-                clearable=False
-                def_value="Scatter"
+        if False:
+            for txtbox in self.GraphParamsOrder:
+                multi=True
+                clearable=True
+                def_value=None
+                if txtbox=="GraphType" or txtbox=="Aggregate_Func":
+                    multi=False
+                if txtbox=="GraphType" :
+                    clearable=False
+                    def_value="Scatter"
 
-            new_divs.append( html.H3(txtbox,style=dict(display='inline-table',width='15%')))
-            new_divs.append(
+                new_divs.append( html.H3(txtbox,style=dict(display='inline-table',width='15%')))
+                new_divs.append(
+                            dcc.Dropdown(
+                                id="input_{}".format(txtbox),
+                                options=self.get_dropdown_values(txtbox),
+                                value=def_value,
+                                multi=multi,
+                                clearable=clearable,
+                                style=dict(display='inline-table',width='35%')
+                            ),
+                )
+
+            new_divs = html.Div(new_divs, style=dict(display=disp1,width='100%'))
+            divs.append(new_divs)
+
+            if self.ControlMode:
+                disp='inline-table'
+            else:
+                disp='none'
+
+            divs.append(
+                html.Div(
+                    [
+                        html.H3("Additional_Labels",style=dict(display=disp,width='15%')),
                         dcc.Dropdown(
-                            id="input_{}".format(txtbox),
-                            options=self.get_dropdown_values(txtbox),
-                            value=def_value,
-                            multi=multi,
-                            clearable=clearable,
-                            style=dict(display='inline-table',width='35%')
+                            id="input_{}".format("Scatter_Labels"),
+                            options=self.get_dropdown_values("Scatter_Labels"),
+                            value=None,
+                            multi=True,
+                            style=dict(display=disp,width='85%')
                         ),
+                    ],
+                    style=dict( display= "table",width='100%'),
+                )
             )
-        if self.ControlMode:
-            disp1="table"
-        else:
-            disp1='none'
 
-        new_divs = html.Div(new_divs, style=dict(display=disp1,width='100%'))
-        divs.append(new_divs)
-
-        if self.ControlMode:
-            disp='inline-table'
-        else:
-            disp='none'
-
-        divs.append(
-            html.Div(
-                [
-                    html.H3("Additional_Labels",style=dict(display=disp,width='15%')),
-                    dcc.Dropdown(
-                        id="input_{}".format("Scatter_Labels"),
-                        options=self.get_dropdown_values("Scatter_Labels"),
-                        value=None,
-                        multi=True,
-                        style=dict(display=disp,width='85%')
-                    ),
-                ],
-                style=dict( display= "table",width='100%'),
-            )
-        )
-        style=dict(display=disp,width='24%' )
+        
         save_layout=[ 
             html.Div(
                 [
@@ -1003,7 +1164,7 @@ class Metrics2:
         return [html.Div(divs, style=dict(columnCount=1))]
 
     def create_conditional_style(self):
-        df=self.plot_df
+        df=self.table_df
         style=[]
         for col in df.columns:
             name_length = len(col)
@@ -1268,6 +1429,7 @@ class Metrics2:
         Inputs.append(Input("table-paging-with-graph", "sort_by")),
         Inputs.append(Input('textarea-filter', 'n_blur')),
         Inputs.append(Input("table-paging-with-graph", "filter_query"))
+      #  Inputs.append(Input("table-paging-with-graph", "derived_filter_query_structure"))
         Inputs.append(Input("btn_clearFilters", "n_clicks"))
         Inputs.append(Input("chk_PreAggregated", "value"))
         Inputs.append(State('textarea-filter', 'value'))
@@ -1464,7 +1626,7 @@ if __name__ == "__main__":
         filter_query,
         click_clrfilter,
         chk_PreAggregatedData,
-        filter,
+        filter, 
         Xaxis,
         GraphType,
         Primary_Yaxis,
@@ -1522,11 +1684,12 @@ if __name__ == "__main__":
             FilterUpdate=True
 
         if trig_id[0]=="table-paging-with-graph" :
+            print("update_inputs : Filter Query " + filter_query)
             if trig_id[1]=="filter_query":
-                print("update_inputs " + filter_query)
+                print("update_inputs : Filter Query " + filter_query)
                 if not filter_query.isspace():
                     filter=filter.strip() 
-                    filter+= ("\n" + re.sub("([^=><])=([^=])","\\1==\\2",filter_query))
+                    filter+= ("\n" + re.sub("([^=><!])=([^=])","\\1==\\2",filter_query))
             elif trig_id[1]=="sort_by":
                 print("update_inputs " + str(sort_by))
                 if not str(sort_by).isspace():
@@ -1603,7 +1766,7 @@ if __name__ == "__main__":
     @app.callback(MC.get_Outputs3(), MC.get_Inputs3(), prevent_initial_call=True)
     def func(n_clicks):
         return dcc.send_data_frame(
-            MC.plot_df.to_excel, "data.xlsx", sheet_name="Sheet1"
+            MC.table_df.to_excel, "data.xlsx", sheet_name="Sheet1"
         )
 
 #    @app.callback(MC.get_Outputs4(), MC.get_Inputs4())
@@ -1613,6 +1776,11 @@ if __name__ == "__main__":
     @app.callback(MC.get_Outputs5(), MC.get_Inputs5(),prevent_initial_callback=True)
     def saveGraph(clicks,value):
         return MC.refresh_callback5(clicks,value)
+
+    @app.callback(MC.get_Outputs_tab(), MC.get_Inputs_tab(),prevent_initial_callback=True)
+    def updateTab(tab):
+        return MC.render_tab_content(tab)
+
 
         
 
