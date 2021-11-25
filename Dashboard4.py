@@ -428,25 +428,25 @@ class Metrics2:
         retval=filter_expr
         DebugMsg("Filter Expr init: " ,  retval)
         
-        mathces= re.findall("(\{)(\S*?)(}\s+contains\s+)(\S*)",retval)
-        print(mathces)
-        for groups in mathces:
-            print(groups[0])
-            print(groups[1])
-            print(groups[2])
-            print(groups[3])
+        matches= re.findall("(\{)(\S*?)(}\s+contains\s+)(\"!\s+)(\S*)(\")",retval)
+        for groups in matches:
+            if is_string_dtype(df[groups[1]]):
+                retval=retval.replace("".join(groups),"~df['" + groups[1] + "'].str.contains(\"" + groups[4] + "\")")
+            elif is_numeric_dtype(df[groups[1]]):
+                retval=retval.replace("".join(groups),"df['" + groups[1] + "'] != " + groups[4] )
+                print(retval)
+
+        matches= re.findall("(\{)(\S*?)(}\s+contains\s+)(\S*)",retval)
+        for groups in matches:
             if is_numeric_dtype(df[groups[1]]):
                 retval=retval.replace("".join(groups),"{" + groups[1] + "} == " + groups[3] )
                 print(retval)
                 
-
-
-
         retval= re.sub("\{(\S*?)}(\s*=[^=])","\\1\\2",retval,1)
         retval= re.sub("\{(\S*?)}","df['\\1']",retval)
         retval= re.sub("\&\&", "&",retval)
         retval= re.sub("\|\|", "|",retval)
-        retval= re.sub("\s*contains\s*(\S*)", ".str.contains('\\1')",retval)
+        retval= re.sub("\s+contains\s+(\S*)", ".str.contains('\\1')",retval)
         retval= retval.replace(".str.contains('#blank')",".isna()")
         DebugMsg("Filter Expr: " ,  retval)
         
@@ -591,7 +591,7 @@ class Metrics2:
                     if legend=="#blank":
                        dftmp=df[df[PrimaryLegendsColName].isna()] 
                     else:
-                       DebugMsg("legends",df[PrimaryLegendsColName])  
+                       #DebugMsg("legends",df[PrimaryLegendsColName])  
                        dftmp = df[df[PrimaryLegendsColName] == legend]
                 if len(self.GraphParams["Xaxis"])>0:
                     dftmp =dftmp.sort_values( by=self.GraphParams["Xaxis"])
