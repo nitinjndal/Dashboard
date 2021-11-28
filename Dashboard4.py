@@ -247,6 +247,7 @@ class Metrics2:
             "Area": go.Scatter,
             "Scatter": go.Scattergl,
             "Pie": go.Pie,
+            "Histogram": go.Histogram,
         }
         self.GraphModeMap = {
             "Bar": "",
@@ -254,6 +255,7 @@ class Metrics2:
             "BarStacked": "",
             "BarStackedH": "",
             "Pie": "",
+            "Histogram": "",
             "Line": "lines",
             "Area": "lines",
             "Scatter": "markers",
@@ -629,6 +631,13 @@ class Metrics2:
                             stackgroup="one",
                         ),
                         secondary_y=secondary_axis,
+                    )
+                elif self.GraphParams["GraphType"] == "Histogram":
+                    fig.add_trace(
+                        PlotFunc(
+                            x=dftmp[yaxis_col],
+                            name=str(legend_name),
+                        ),
                     )
                 elif self.GraphParams["GraphType"] == "Scatter":
                     t = []
