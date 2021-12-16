@@ -75,6 +75,7 @@ class Metrics2:
                          'ReplaceWithNan' : replace_with_nan
                         }
         self.LastGraphFile = "./LastGraphType"
+        self.HistoricalGraphsFile = "./History"
         self.SavedGraphsFile = "./SavedGraphs"
         self.ControlMode=not DashboardMode
 
@@ -101,7 +102,7 @@ class Metrics2:
         self.DF_read_copy = dict()
 
         self.Dashboard()
-        self.getGraphList()
+        self.updateGraphList()
 
         self.filtered_df = self.df.copy()
         self.plot_df=self.filtered_df
@@ -129,12 +130,15 @@ class Metrics2:
         self.GraphParams["PreviousOperations"] = []
         self.GraphParams["ShowPreAggregatedData"] = []
 
+    def updateGraphList(self):
+       self.SavedGraphList= self.getGraphList(self.SavedGraphsFile)
+       self.HistoricalGraphList= self.getGraphList(self.HistoricalGraphsFile)
 
-    def getGraphList(self):           
-        self.GraphList=dict()
-        if os.path.exists(self.SavedGraphsFile):
-            with open(self.SavedGraphsFile) as json_file:
-                self.GraphList=json.load(json_file)  
+    def getGraphList(self,GraphsFile):           
+        if os.path.exists(GraphsFile):
+            with open(GraphsFile) as json_file:
+                return json.load(json_file)  
+        return dict()
 
     def get_Graphid(self):           
         x=self.GraphParams.copy()
@@ -877,7 +881,10 @@ class Metrics2:
             for col in self.aggregateFuncs:
                 list_of_dic.append({"label": col, "value": col})
         elif type == "SavedGraphNames":
-            for col in self.GraphList:
+            for col in self.SavedGraphList:
+                list_of_dic.append({"label": col, "value": col})
+        elif type == "HistoricalGraphNames":
+            for col in self.HistoricalGraphList:
                 list_of_dic.append({"label": col, "value": col})
         else :
             for col in df.columns:
@@ -968,16 +975,17 @@ class Metrics2:
                 clearable=False
                 def_value="Scatter"
             new_divs.append( html.H3(txtbox,style=dict(display=tab1_display,width='15%')))
-            new_divs.append(
+            new_divs.append( html.Div([
                         dcc.Dropdown(
                             id="input_{}".format(txtbox),
                             options=self.get_dropdown_values(txtbox),
                             value=def_value,
                             multi=multi,
-                            clearable=clearable,
-                            style=dict(display=tab1_display,width='35%')
+                            clearable=clearable)],
+                            style=dict(display=tab1_display,width='30%')
                         ),
             )
+            new_divs.append( html.Div(style=dict(display=tab1_display,width='5%')))
 
 
         new_divs = html.Div(new_divs, style=dict(display=disp1,width='100%'))
@@ -1018,12 +1026,12 @@ class Metrics2:
 
         if self.ControlMode:
             disp='none'
-            disp='inline-table'
+            disp='inline-block'
         else:
-            disp='inline-table'
+            disp='inline-block'
 
         if self.ControlMode:
-            disp1="table"
+            disp1="block"
         else:
             disp1='none'
     
@@ -1031,20 +1039,29 @@ class Metrics2:
         divs.append(
             html.Div(
                 [
-                    html.Button("Refresh", id="refreshbtn", n_clicks=0,style=dict(display='inline-table',width='10%')),
-                    html.Button("Reset", id="btn_reset", n_clicks=0,style=dict(display='inline-table',width='10%')),
-                    html.Button("Download Excel", id="btn_download",style=dict(display='inline-table',width='10%')),
+                    html.Button("Refresh", id="refreshbtn", n_clicks=0,style=dict(display='inline-block',width='10%',height='100%',verticalAlign='top')),
+                    html.Button("Reset", id="btn_reset", n_clicks=0,style=dict(display='inline-block',width='10%',height='100%',verticalAlign='top')),
+                    html.Div([
                     dcc.Dropdown(
                         id="input_graphName",
                         options=self.get_dropdown_values("SavedGraphNames"),
                         value=None,
-                        multi=False,
-                        style=dict(display=disp,width='60%')
+                        multi=False)],
+                        style=dict(display=disp,width='50%',height='100%',verticalAlign='top')
                     ),
+                    html.Div([
+                    dcc.Dropdown(
+                        id="input_HistoricalgraphName",
+                        options=self.get_dropdown_values("HistoricalGraphNames"),
+                        value=None,
+                        multi=False)],
+                        style=dict(display=disp,width='20%',height='100%',verticalAlign='center')
+                    ),
+                    html.Button("Download Excel", id="btn_download",style=dict(display='inline-block',width='10%',height='100%',verticalAlign='top')),
                     dcc.Download(id="download-dataframe-xlsx"),
                         
                 ],
-                style=dict(display='table',width='100%')
+                style=dict(display='block',width='100%',height="35px")
             )
         )
 
@@ -1285,6 +1302,17 @@ class Metrics2:
         Inputs.append(State("input_save", "value"))
         return Inputs
 
+    def save_history(self):
+        retval = ""
+        graphlist={}
+        if os.path.exists(self.HistoricalGraphsFile):
+            with open(self.HistoricalGraphsFile) as json_file:
+                graphlist=json.load(json_file)  
+        GraphName=len(graphlist)
+        graphlist[GraphName]=self.GraphParams
+        with open(self.HistoricalGraphsFile, "w") as outfile:
+            json.dump(graphlist,outfile)
+        return retval
 
     def refresh_callback5(self, n_clicks,GraphName):
         retval = ""
@@ -1424,6 +1452,7 @@ class Metrics2:
         Outputs.append(Output("input_{}".format("Scatter_Labels"), "value"))
         Outputs.append(Output("hidden-input_dropdown_vals","n_clicks"))
         Outputs.append(Output("input_graphName", "options"))
+        Outputs.append(Output("input_HistoricalgraphName", "options"))
         Outputs.append(Output("input_Secondary_Legends", "options"))
         Outputs.append(Output("table-paging-with-graph", "filter_query"))
         Outputs.append(Output("table-paging-with-graph", "style_data_conditional"))
@@ -1433,6 +1462,7 @@ class Metrics2:
         Inputs = list()
         Inputs.append(Input("refreshbtn", "n_clicks"))
         Inputs.append(Input("input_graphName", "value")),
+        Inputs.append(Input("input_HistoricalgraphName", "value")),
         Inputs.append(Input("table-paging-with-graph", "page_current")),
         Inputs.append(Input("table-paging-with-graph", "page_size")),
         Inputs.append(Input("table-paging-with-graph", "sort_by")),
@@ -1460,7 +1490,8 @@ class Metrics2:
         refresh_df,
         FirstLoad,
         FilterUpdate,
-        showGraph
+        showGraph,
+        showHistoricalGraph
     ):
         print("FirstLoad=" + str(FirstLoad))
         print("showGraph=" + str(showGraph))
@@ -1474,7 +1505,12 @@ class Metrics2:
         if self.reset :
             pass
         elif showGraph is not None:
-            self.GraphParams=self.GraphList[showGraph].copy()
+            self.GraphParams=self.SavedGraphList[showGraph].copy()
+            self.update_aggregate()
+            refresh_df=True
+            FirstLoad=True
+        elif showHistoricalGraph is not None:
+            self.GraphParams=self.HistoricalGraphList[showHistoricalGraph].copy()
             self.update_aggregate()
             refresh_df=True
             FirstLoad=True
@@ -1566,6 +1602,8 @@ class Metrics2:
             if self.figs[grpid] is None:
                 self.figs[grpid]=go.Figure()
             retval.append(self.figs[grpid])
+            self.save_history()
+
         return retval
 
     
@@ -1630,7 +1668,7 @@ if __name__ == "__main__":
 
     @app.callback(MC.get_Outputs(), MC.get_Inputs(),prevent_initial_callback=True)
     def update_output(
-        n_clicks,graphname,
+        n_clicks,graphname, historicalgraph,
         page_current, page_size, sort_by, advfltr_click,
         filter_query,
         click_clrfilter,
@@ -1647,7 +1685,7 @@ if __name__ == "__main__":
     ):
 
         DebugMsg("DEBUG1: update_output(",
-       str(n_clicks) + "," + str(graphname) + "," + 
+       str(n_clicks) + "," + str(graphname) + "," + str(historicalgraph) + "," + 
          str(page_current) + ", " + str(page_size) + ", " + str(sort_by) + ", " + str(advfltr_click) + "," + 
          str(filter_query) + "," + 
          str(click_clrfilter) + "," + 
@@ -1667,6 +1705,7 @@ if __name__ == "__main__":
         refresh_df=False
         FilterUpdate=False
         showGraph=None
+        showHistoricalGraph=None
         clearFilter=False
         PreAggrClick=False
         #print("page_current=" + str(page_current))
@@ -1713,6 +1752,10 @@ if __name__ == "__main__":
             if trig_id[1]==None:
                 raise dash.exceptions.PreventUpdate
             showGraph=graphname
+        elif trig_id[0]=="input_HistoricalgraphName":
+            if trig_id[1]==None:
+                raise dash.exceptions.PreventUpdate
+            showHistoricalGraph=historicalgraph
 #        DebugMsg("#### DEBUG RETVAL", retval)
 
         MC.GraphParams['ShowPreAggregatedData']=chk_PreAggregatedData
@@ -1724,7 +1767,7 @@ if __name__ == "__main__":
             t2=MC.refresh_callback( Xaxis, GraphType, Primary_Yaxis, Primary_Legends, Aggregate_Func, 
                                 Secondary_Legends, Scatter_Labels,  filter, chk_PreAggregatedData,
                                 refresh_df,
-                                FirstLoad,FilterUpdate,showGraph)
+                                FirstLoad,FilterUpdate,showGraph,showHistoricalGraph)
         else:
             t2=[dash.no_update,dash.no_update]
         t1=[MC.update_table(page_current, page_size)]
@@ -1732,6 +1775,9 @@ if __name__ == "__main__":
         t3=[[{"name": i, "id": i} for i in MC.GlobalParams['Datatable_columns']]]
         t4=[str(MC.get_number_of_records())]
         if (showGraph is not None) and MC.ControlMode:
+            FirstLoad=True
+
+        if (showHistoricalGraph is not None) and MC.ControlMode:
             FirstLoad=True
 
         t5=MC.update_inputs(FirstLoad)
@@ -1749,8 +1795,9 @@ if __name__ == "__main__":
         else:
             retval.append(1)
 
-        MC.getGraphList()
+        MC.updateGraphList()
         retval.append(MC.get_dropdown_values("SavedGraphNames"))
+        retval.append(MC.get_dropdown_values("HistoricalGraphNames"))
         retval.append(MC.get_dropdown_values("Secondary_Legends"))
 
         if clearFilter:
