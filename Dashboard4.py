@@ -1364,37 +1364,6 @@ class Dashboard:
         Inputs.append(State("input_save", "value"))
         return Inputs
 
-    def save_history(self):
-        retval = ""
-        graphlist=None
-        if os.path.exists(self.DataFile['HistoricalGraphsFile']):
-            with open(self.DataFile['HistoricalGraphsFile']) as json_file:
-                graphlist=json.load(json_file)  
-        if graphlist is None:
-            graphlist={}
-        GraphName=len(graphlist)
-        self.set_Graphid()
-        already_present=False
-        for g in graphlist:
-            if graphlist[g]['GraphId'] == self.GraphParams['GraphId']:
-                already_present=True
-                temp={g : graphlist[g] }
-                del graphlist[g]
-                temp.update(graphlist)
-                graphlist=temp
-                break
-        if not already_present:
-            temp={GraphName : self.GraphParams }
-            temp.update(graphlist)
-            graphlist=temp
-        
-        if len(graphlist) > 100:
-            graphlist = {k: graphlist[k] for k in list(graphlist)[:100]}
-
-        with open(self.DataFile['HistoricalGraphsFile'], "w") as outfile:
-            json.dump(graphlist,outfile)
-        return retval
-
     def refresh_callback5(self, n_clicks,GraphName):
         retval = ""
         if (n_clicks is not None) and (GraphName is not None):
@@ -1407,7 +1376,46 @@ class Dashboard:
             graphlist[GraphName]=self.GraphParams
             with open(self.DataFile['SavedGraphsFile'], "w") as outfile:
                 json.dump(graphlist,outfile)
+            self.save_history()
         return retval
+
+    def save_history(self):
+        retval = ""
+        graphlist=None
+        if os.path.exists(self.DataFile['HistoricalGraphsFile']):
+            with open(self.DataFile['HistoricalGraphsFile']) as json_file:
+                graphlist=json.load(json_file)  
+        if graphlist is None:
+            graphlist={}
+        graphName=len(graphlist)
+        self.set_Graphid()
+        already_present=False
+        for g in graphlist:
+            if graphlist[g]['GraphId'] == self.GraphParams['GraphId']:
+                already_present=True
+                if self.GraphParams['Name'] != "":
+                    graphname=self.GraphParams['Name']
+                else:
+                   graphname=g 
+                temp={graphname : graphlist[g] }
+                del graphlist[g]
+                temp.update(graphlist)
+                graphlist=temp
+                break
+        if not already_present:
+            if self.GraphParams['Name'] != "":
+                graphname=self.GraphParams['Name']
+            temp={graphName : self.GraphParams }
+            temp.update(graphlist)
+            graphlist=temp
+        
+        if len(graphlist) > 100:
+            graphlist = {k: graphlist[k] for k in list(graphlist)[:100]}
+
+        with open(self.DataFile['HistoricalGraphsFile'], "w") as outfile:
+            json.dump(graphlist,outfile)
+        return retval
+
 
 
     def read_lastGraphFile(self):
