@@ -40,12 +40,19 @@ print("############################################")
 debug=False
 
 def DebugMsg(msg1,msg2=None):
+    return ""
     if debug:
         print(msg1,end=" " )
         if msg2 is not None:
             print(msg2)
         print("")
 
+def DebugMsg2(msg1,msg2=None):
+    if debug:
+        print(msg1,end=" " )
+        if msg2 is not None:
+            print(msg2)
+        print("")
 
 def get_xlsx_sheet_names(xlsx_file):
     with ZipFile(xlsx_file) as zipped_file:
@@ -60,23 +67,21 @@ def get_xlsx_sheet_names(xlsx_file):
 
 
 
-class Metrics2:
-    def __init__(self,  datafile,isxlsx=False,sheetname=None,skiprows=0,replace_with_nan=None, DashboardMode=False,):
+class Dashboard:
+    def __init__(self,  datafile,isxlsx=False,sheetname=None,skiprows=0,replace_with_nan=None, DashboardMode=False):
+        self.RecentFilesListPath="./recent"
+        self.DashboardMode=DashboardMode
+        self.setDataFile(datafile,isxlsx,sheetname,skiprows,replace_with_nan)
+        self.createDashboard(self.DashboardMode)
+        self.app = dash.Dash()
+        self.app.layout = html.Div(self.layout())
+
+    def createDashboard(self, DashboardMode=False):
         self.init_constants()
-        self.fileMtimes = dict()
         self.df=None
         self.reset=False
         self.newXAxisColName = "#"
         self.DatatoDownload = None
-        self.DataFile = {'Path': datafile,
-                         'isXlsx':isxlsx,
-                         'Sheet': sheetname,
-                         'SkipRows': skiprows,
-                         'ReplaceWithNan' : replace_with_nan
-                        }
-        self.LastGraphFile = "./LastGraphType"
-        self.HistoricalGraphsFile = "./History"
-        self.SavedGraphsFile = "./SavedGraphs"
         self.ControlMode=not DashboardMode
 
 
@@ -89,8 +94,8 @@ class Metrics2:
         self.GlobalParams['columns_updated']=False
         self.GlobalParams['PreAggregaredData']=True
 
-        if os.path.exists(self.LastGraphFile):
-            with open(self.LastGraphFile) as json_file:
+        if os.path.exists(self.DataFile['LastGraphFile']):
+            with open(self.DataFile['LastGraphFile']) as json_file:
                 self.GraphParams = json.load(json_file)
                 self.update_aggregate()
         else:
@@ -101,7 +106,7 @@ class Metrics2:
 
         self.DF_read_copy = dict()
 
-        self.Dashboard()
+        self.readFileInitDash()
         self.updateGraphList()
 
         self.filtered_df = self.df.copy()
@@ -109,8 +114,21 @@ class Metrics2:
         self.table_df=self.filtered_df
         self.initialize_figs()
         #self.update_graph()
-        self.app = dash.Dash()
-        self.app.layout = html.Div(self.layout())
+
+    def setDataFile(self,datafile,isxlsx,sheetname,skiprows,replace_with_nan):
+        datafile1=os.path.abspath(datafile)
+        self.DataFile = {'Path': datafile1,
+                         'isXlsx':isxlsx,
+                         'Sheet': sheetname,
+                         'SkipRows': skiprows,
+                         'ReplaceWithNan' : replace_with_nan, 
+                         'LastModified' : 0 ,
+                         'MetadataFile' : datafile + ".dashjsondata" , 
+                         'LastGraphFile' : datafile + ".LastGraphType" ,
+                         'HistoricalGraphsFile' : datafile + ".History" ,
+                         'SavedGraphsFile' : datafile +  ".SavedGraphs"
+                        }
+        self.updateRecentFiles()
 
     def initialize_GraphParams(self):
         self.GraphParams["GraphId"] = ""
@@ -129,22 +147,42 @@ class Metrics2:
         self.GraphParams["SortAgregatedData"] = ""
         self.GraphParams["PreviousOperations"] = []
         self.GraphParams["ShowPreAggregatedData"] = []
+    
+    def loadMetadata(self):
+        if os.path.exists(self.DataFile['MetadataFile']):
+            with open(self.DataFile['MetadataFile']) as json_file:
+                return json.load(json_file)  
+        return None
+
+    def updateMetadata(self,header,data):
+        jsondata=self.loadMetadata()
+        if jsondata is None:
+            jsondata=dict()
+        jsondata[header]=data
+        with open(self.DataFile['MetadataFile'], "w") as outfile:
+            json.dump(jsondata,outfile)
+        
+
 
     def updateGraphList(self):
-       self.SavedGraphList= self.getGraphList(self.SavedGraphsFile)
-       self.HistoricalGraphList= self.getGraphList(self.HistoricalGraphsFile)
+       self.SavedGraphList= self.getGraphList(self.DataFile['SavedGraphsFile'])
+       self.HistoricalGraphList= self.getGraphList(self.DataFile['HistoricalGraphsFile'])
 
     def getGraphList(self,GraphsFile):           
+        x=None
         if os.path.exists(GraphsFile):
             with open(GraphsFile) as json_file:
-                return json.load(json_file)  
-        return dict()
+                x= json.load(json_file)  
+        if x is None:
+            return dict()
+        else:
+            return x
 
-    def get_Graphid(self):           
+    def set_Graphid(self):           
         x=self.GraphParams.copy()
         x['GraphId']=""
         x['Name']=""
-        zlib.adler32(bytes(json.dumps(x),'UTF-8'))
+        self.GraphParams['GraphId']=zlib.adler32(bytes(json.dumps(x),'UTF-8'))
         return id
 
     def update_dtypes(self,df1):           
@@ -296,12 +334,9 @@ class Metrics2:
 
     def read_file_in_df(self,  FileInfo):
         mtime = os.path.getmtime(FileInfo['Path'])
-        if FileInfo['Path'] not in self.fileMtimes:
-            self.fileMtimes[FileInfo['Path']] = 0
-
-        if mtime > self.fileMtimes[FileInfo['Path']]:
+        if mtime > FileInfo['LastModified']:
             print("Reading file " + str(FileInfo['Path'])  )
-            self.fileMtimes[FileInfo['Path']] = mtime
+            FileInfo['LastModified'] = mtime
             if FileInfo['isXlsx']:
                 df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'])
             else:
@@ -319,12 +354,28 @@ class Metrics2:
         else:
             print("File not changed")
         return self.DF_read_copy[FileInfo['Path']].copy()
+    
+    def updateRecentFiles(self):
+        filelist=dict()
+        if os.path.exists(self.RecentFilesListPath):
+            with open(self.RecentFilesListPath) as json_file:
+                filelist=json.load(json_file)  
+        name= (self.DataFile['Path']  + "#" 
+                + str(self.DataFile['isXlsx'])  + "#" 
+                + str(self.DataFile['Sheet'])  + "#" 
+                + str(self.DataFile['SkipRows'])  + "#" 
+                + str(self.DataFile['ReplaceWithNan'])  + "#" 
+              )
+        filelist[name]=self.DataFile.copy()
+        with open(self.RecentFilesListPath, "w") as outfile:
+            json.dump(filelist,outfile)
 
-    def Dashboard(self):
+    def readFileInitDash(self):
         if self.df is None:
             self.df = self.read_file_in_df(self.DataFile)
-
+      
         self.figs = dict()
+
 
     def get_groupid(self, group):
         return "TopLevelID"
@@ -886,6 +937,13 @@ class Metrics2:
         elif type == "HistoricalGraphNames":
             for col in self.HistoricalGraphList:
                 list_of_dic.append({"label": col, "value": col})
+        elif type == "input_recentlyLoadedFiles":
+            filelist=[]
+            if os.path.exists(self.RecentFilesListPath):
+                with open(self.RecentFilesListPath) as json_file:
+                    filelist=json.load(json_file)  
+            for col in filelist:
+                list_of_dic.append({"label": col, "value": col})
         else :
             for col in df.columns:
                 list_of_dic.append({"label": col, "value": col})
@@ -1010,13 +1068,68 @@ class Metrics2:
         return divs
 
 
+    def layout_filepath(self):
+        disp='inline-block'
+        divs=[]
+        divs.append(
+            html.Div(
+                [
+                    html.Button("Load", id="btn_load", n_clicks=0,style=dict(display='inline-block',width='5%',height='100%',verticalAlign='top')),
+                    html.Div([
+                    dcc.Input(
+                        id="input_loadFileName",
+                        type='text',
+                        placeholder='Path of file to load',
+                        style=dict(height='80%' ,width='90%')
+                        )],
+                        style=dict(display=disp,width='30%',height='100%',verticalAlign='top')
+                    ),
+                    dcc.Checklist(id='chk_isXlsx', options=[ {'label': 'xlsx', 'value': 'True'} ], value=['True'], style=dict(display='inline-block',width='3%',verticalAlign='top')) , 
+                    html.Div([
+                    dcc.Input(
+                        id="input_loadFileSheetName",
+                        type='text',
+                        placeholder='SheetName',
+                        style=dict(height='80%' ,width='90%')
+                        )],
+                        style=dict(display=disp,width='10%',height='100%',verticalAlign='top')
+
+
+                    ),
+                    html.Div([
+                    dcc.Input(
+                        id="input_skiprows",
+                        type='text',
+                        placeholder='SkipRows',
+                        style=dict(height='80%' ,width='90%')
+                        )],
+                        style=dict(display=disp,width='5%',height='100%',verticalAlign='top')
+                    ),
+                    html.Div([
+                    dcc.Input(
+                        id="input_replaceWithNan",
+                        type='text',
+                        placeholder='ReplaceWithNan',
+                        style=dict(height='80%' ,width='90%')
+                        )],
+                        style=dict(display=disp,width='10%',height='100%',verticalAlign='top')
+                    ),
+                    html.Div([
+                    dcc.Dropdown(
+                        id="input_recentlyLoadedFiles",
+                        options=self.get_dropdown_values("input_recentlyLoadedFiles"),
+                        value=None,
+                        multi=False)],
+                        style=dict(display=disp,width='37%',height='100%',verticalAlign='center')
+                    ),
+                ],
+                style=dict(display='block',width='100%',height="35px")
+            )
+        )
+        return divs
 
     
     def layout(self):
-        if self.aggregate:
-            agg_val=["Yes"]
-        else:
-            agg_val=[]
         divs=[]
         divs.append(html.Div(id="hidden-div1", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Div(id="hidden-div2", style={"display": "none",'width':'100%','border':'2px solid black'}))
@@ -1066,56 +1179,6 @@ class Metrics2:
         )
 
         divs.append(self.layout_tab(disp1))
-
-
-        new_divs = []
-        if False:
-            for txtbox in self.GraphParamsOrder:
-                multi=True
-                clearable=True
-                def_value=None
-                if txtbox=="GraphType" or txtbox=="Aggregate_Func":
-                    multi=False
-                if txtbox=="GraphType" :
-                    clearable=False
-                    def_value="Scatter"
-
-                new_divs.append( html.H3(txtbox,style=dict(display='inline-table',width='15%')))
-                new_divs.append(
-                            dcc.Dropdown(
-                                id="input_{}".format(txtbox),
-                                options=self.get_dropdown_values(txtbox),
-                                value=def_value,
-                                multi=multi,
-                                clearable=clearable,
-                                style=dict(display='inline-table',width='35%')
-                            ),
-                )
-
-            new_divs = html.Div(new_divs, style=dict(display=disp1,width='100%'))
-            divs.append(new_divs)
-
-            if self.ControlMode:
-                disp='inline-table'
-            else:
-                disp='none'
-
-            divs.append(
-                html.Div(
-                    [
-                        html.H3("Additional_Labels",style=dict(display=disp,width='15%')),
-                        dcc.Dropdown(
-                            id="input_{}".format("Scatter_Labels"),
-                            options=self.get_dropdown_values("Scatter_Labels"),
-                            value=None,
-                            multi=True,
-                            style=dict(display=disp,width='85%')
-                        ),
-                    ],
-                    style=dict( display= "table",width='100%'),
-                )
-            )
-
         
         save_layout=[ 
             html.Div(
@@ -1134,8 +1197,7 @@ class Metrics2:
                 , style=dict(display=disp1,width='100%'),
             )
         ]
-        #divs = divs + self.layout1() + save_layout + self.filter_layout()   +self.dataframe_layout()
-        divs = divs + self.layout1() + save_layout   +self.dataframe_layout()
+        divs = self.layout_filepath() +  divs + self.layout1() + save_layout   +self.dataframe_layout()
         divs.append(html.H2(" No of Records :  "))
         divs.append(html.H3(" - ",id="lbl_records"))
         ret=html.Div(divs,
@@ -1304,13 +1366,32 @@ class Metrics2:
 
     def save_history(self):
         retval = ""
-        graphlist={}
-        if os.path.exists(self.HistoricalGraphsFile):
-            with open(self.HistoricalGraphsFile) as json_file:
+        graphlist=None
+        if os.path.exists(self.DataFile['HistoricalGraphsFile']):
+            with open(self.DataFile['HistoricalGraphsFile']) as json_file:
                 graphlist=json.load(json_file)  
+        if graphlist is None:
+            graphlist={}
         GraphName=len(graphlist)
-        graphlist[GraphName]=self.GraphParams
-        with open(self.HistoricalGraphsFile, "w") as outfile:
+        self.set_Graphid()
+        already_present=False
+        for g in graphlist:
+            if graphlist[g]['GraphId'] == self.GraphParams['GraphId']:
+                already_present=True
+                temp={g : graphlist[g] }
+                del graphlist[g]
+                temp.update(graphlist)
+                graphlist=temp
+                break
+        if not already_present:
+            temp={GraphName : self.GraphParams }
+            temp.update(graphlist)
+            graphlist=temp
+        
+        if len(graphlist) > 100:
+            graphlist = {k: graphlist[k] for k in list(graphlist)[:100]}
+
+        with open(self.DataFile['HistoricalGraphsFile'], "w") as outfile:
             json.dump(graphlist,outfile)
         return retval
 
@@ -1318,19 +1399,20 @@ class Metrics2:
         retval = ""
         if (n_clicks is not None) and (GraphName is not None):
             self.GraphParams['Name']=GraphName
+            self.set_Graphid()
             graphlist={}
-            if os.path.exists(self.SavedGraphsFile):
-                with open(self.SavedGraphsFile) as json_file:
+            if os.path.exists(self.DataFile['SavedGraphsFile']):
+                with open(self.DataFile['SavedGraphsFile']) as json_file:
                     graphlist=json.load(json_file)  
             graphlist[GraphName]=self.GraphParams
-            with open(self.SavedGraphsFile, "w") as outfile:
+            with open(self.DataFile['SavedGraphsFile'], "w") as outfile:
                 json.dump(graphlist,outfile)
         return retval
 
 
     def read_lastGraphFile(self):
-        print("Reading " + self.LastGraphFile)
-        with open(self.LastGraphFile) as json_file:
+        print("Reading " + self.DataFile['LastGraphFile'])
+        with open(self.DataFile['LastGraphFile']) as json_file:
             self.GraphParams = json.load(json_file)
             self.update_aggregate()
 
@@ -1424,12 +1506,45 @@ class Metrics2:
         Inputs.append(Input("btn_reset", "n_clicks"))
         return Inputs
 
+
     def callbackReset(self,nclicks):
         DebugMsg("Reset Done")
         if nclicks>0:
             self.reset=True
             self.initialize_GraphParams()
             self.df = self.read_file_in_df(self.DataFile)
+        return 0
+
+    def get_OutputsLoadFile(self):
+        Outputs = list()
+        Outputs.append(Output("input_recentlyLoadedFiles", "options"))
+        Outputs.append(Output("btn_reset", "n_clicks"))
+        Outputs.append(Output("input_loadFileName", "value"))
+        Outputs.append(Output("chk_isXlsx", "value"))
+        Outputs.append(Output("input_loadFileSheetName", "value"))
+        Outputs.append(Output("input_skiprows", "value"))
+        Outputs.append(Output("input_replaceWithNan", "value"))
+        return Outputs
+
+    def get_InputsLoadFile(self):
+        Inputs = list()
+        Inputs.append(Input("btn_load", "n_clicks"))
+        Inputs.append(Input("input_recentlyLoadedFiles", "value"))
+        Inputs.append(State("input_loadFileName", "value"))
+        Inputs.append(State("chk_isXlsx", "value"))
+        Inputs.append(State("input_loadFileSheetName", "value"))
+        Inputs.append(State("input_skiprows", "value"))
+        Inputs.append(State("input_replaceWithNan", "value"))
+        return Inputs
+
+    def callbackLoadFile(self,nclicks,filename,isxlsx,sheetname,skiprows,replaceWithNan):
+        filename=os.path.abspath(filename)
+        DebugMsg2("Loading Done")
+        if filename != self.DataFile['Path'] :
+            DebugMsg2("isxlsx=",isxlsx)
+            self.setDataFile(filename,isxlsx,sheetname,skiprows,replaceWithNan)
+            if nclicks>0:
+                self.createDashboard(self.DashboardMode)
         return 0
 
 
@@ -1514,7 +1629,7 @@ class Metrics2:
             self.update_aggregate()
             refresh_df=True
             FirstLoad=True
-        elif FirstLoad and os.path.exists(self.LastGraphFile):
+        elif FirstLoad and os.path.exists(self.DataFile['LastGraphFile']):
             print("Reading First Load" )
             self.read_lastGraphFile()
         elif refresh_df and Primary_Yaxis is not None:
@@ -1544,7 +1659,7 @@ class Metrics2:
 
 
         if refresh_df:
-            self.Dashboard()
+            self.readFileInitDash()
 #            self.filtered_df = self.df.copy()
 
         if FirstLoad:
@@ -1590,7 +1705,8 @@ class Metrics2:
                     self.GlobalParams['Datatable_columns'].append(col)
 
         if (not FirstLoad) and (not self.reset):
-            with open(MC.LastGraphFile, "w") as outfile:
+            with open(MC.DataFile['LastGraphFile'], "w") as outfile:
+                MC.set_Graphid()
                 json.dump(MC.GraphParams, outfile)
         self.reset=False
 
@@ -1662,7 +1778,7 @@ if __name__ == "__main__":
 
 
 
-    MC = Metrics2(datafile=args.file,isxlsx=args.isxlsx, sheetname=args.sheet, skiprows=args.skiprows, replace_with_nan=args.treat_as_missing_value ,DashboardMode=args.DashboardMode)
+    MC = Dashboard(datafile=args.file,isxlsx=args.isxlsx, sheetname=args.sheet, skiprows=args.skiprows, replace_with_nan=args.treat_as_missing_value ,DashboardMode=args.DashboardMode)
 
     app = MC.app
 
@@ -1837,7 +1953,29 @@ if __name__ == "__main__":
     def updateTab(tab):
         return MC.render_tab_content(tab)
 
-
+    @app.callback(MC.get_OutputsLoadFile(), MC.get_InputsLoadFile(),prevent_initial_callback=True)
+    def loadFile(clicks,select_value,input_value,isxlsx,sheetname,skiprows,replaceWithNaN):
+        trig_id =  dash.callback_context.triggered[0]['prop_id'].split('.')
+        value=None
+        isxlsx1=False
+        DebugMsg("load trig id" , trig_id[0])
+        if trig_id[0] =="btn_load":
+            value=input_value
+        elif trig_id[0] =="input_recentlyLoadedFiles":
+            temp=select_value.split("#")
+            value=temp[0]
+            isxlsx=temp[1]
+            sheetname=None
+            if isxlsx == "True":
+                isxlsx1=True
+                sheetname=temp[2]
+            skiprows=temp[3]
+            replaceWithNaN=temp[4]
+        if value is not None:
+            MC.callbackLoadFile(clicks,value,isxlsx1,sheetname,skiprows,replaceWithNaN)
+            return [MC.get_dropdown_values("input_recentlyLoadedFiles"), 1,value,[isxlsx],sheetname,skiprows,replaceWithNaN]
+        else:
+            return [dash.no_update,dash.no_update,dash.no_update,dash.no_update,dash.no_update,dash.no_update,dash.no_update]
         
 
     #@app.callback(Output('table-paging-with-graph', 'data'),
