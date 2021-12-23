@@ -14,7 +14,7 @@ import datetime as dt
 from plotly.subplots import make_subplots
 from dash.dependencies import Input, Output, State
 from pprint import pprint
-from waitress import serve
+import waitress
 import json
 import re
 import argparse
@@ -39,20 +39,15 @@ print("############################################")
 print("############################################")
 debug=False
 
-def DebugMsg(msg1,msg2=None):
-    return ""
-    if debug:
+def DebugMsg(msg1,msg2=None,printmsg=False):
+    if debug and printmsg:
         print(msg1,end=" " )
         if msg2 is not None:
             print(msg2)
         print("")
 
-def DebugMsg2(msg1,msg2=None):
-    if debug:
-        print(msg1,end=" " )
-        if msg2 is not None:
-            print(msg2)
-        print("")
+def DebugMsg2(msg1,msg2=None,printmsg=True):
+    DebugMsg(msg1,msg2,printmsg)
 
 def get_xlsx_sheet_names(xlsx_file):
     with ZipFile(xlsx_file) as zipped_file:
@@ -819,7 +814,7 @@ class Dashboard:
             step_cnt+=1
             DebugMsg("Filter= " + filter)
             filter_expr=self.create_eval_func(df,filter)
-            print("Step " + str(step_cnt) + " :: " + str(filter_expr))
+            DebugMsg("Step " + str(step_cnt) + " :: " + str(filter_expr))
             if filter.startswith("SortBy:"):
                 filter=re.sub("^SortBy:","",filter)
                 sort_by=json.loads(filter)
@@ -1099,7 +1094,7 @@ class Dashboard:
                     html.Div([
                     dcc.Input(
                         id="input_skiprows",
-                        type='text',
+                        type='number',
                         placeholder='SkipRows',
                         style=dict(height='80%' ,width='90%')
                         )],
@@ -1117,6 +1112,66 @@ class Dashboard:
                     html.Div([
                     dcc.Dropdown(
                         id="input_recentlyLoadedFiles",
+                        options=self.get_dropdown_values("input_recentlyLoadedFiles"),
+                        value=None,
+                        multi=False)],
+                        style=dict(display=disp,width='37%',height='100%',verticalAlign='center')
+                    ),
+                ],
+                style=dict(display='block',width='100%',height="35px")
+            )
+        )
+        return divs
+
+    def layout_filepath2(self):
+        disp='inline-block'
+        divs=[]
+        divs.append(
+            html.Div(
+                [
+                    html.Button("Load", id="btn_load2", n_clicks=0,style=dict(display='inline-block',width='5%',height='100%',verticalAlign='top')),
+                    html.Div([
+                    dcc.Input(
+                        id="input_loadFileName2",
+                        type='text',
+                        placeholder='Path of file to load',
+                        style=dict(height='80%' ,width='90%')
+                        )],
+                        style=dict(display=disp,width='30%',height='100%',verticalAlign='top')
+                    ),
+                    dcc.Checklist(id='chk_isXlsx2', options=[ {'label': 'xlsx', 'value': 'True'} ], value=['True'], style=dict(display='inline-block',width='3%',verticalAlign='top')) , 
+                    html.Div([
+                    dcc.Input(
+                        id="input_loadFileSheetName2",
+                        type='text',
+                        placeholder='SheetName',
+                        style=dict(height='80%' ,width='90%')
+                        )],
+                        style=dict(display=disp,width='10%',height='100%',verticalAlign='top')
+
+
+                    ),
+                    html.Div([
+                    dcc.Input(
+                        id="input_skiprows2",
+                        type='number',
+                        placeholder='SkipRows',
+                        style=dict(height='80%' ,width='90%')
+                        )],
+                        style=dict(display=disp,width='5%',height='100%',verticalAlign='top')
+                    ),
+                    html.Div([
+                    dcc.Input(
+                        id="input_replaceWithNan2",
+                        type='text',
+                        placeholder='ReplaceWithNan',
+                        style=dict(height='80%' ,width='90%')
+                        )],
+                        style=dict(display=disp,width='10%',height='100%',verticalAlign='top')
+                    ),
+                    html.Div([
+                    dcc.Dropdown(
+                        id="input_recentlyLoadedFiles2",
                         options=self.get_dropdown_values("input_recentlyLoadedFiles"),
                         value=None,
                         multi=False)],
@@ -1419,7 +1474,7 @@ class Dashboard:
 
 
     def read_lastGraphFile(self):
-        print("Reading " + self.DataFile['LastGraphFile'])
+        DebugMsg("Reading " + self.DataFile['LastGraphFile'])
         with open(self.DataFile['LastGraphFile']) as json_file:
             self.GraphParams = json.load(json_file)
             self.update_aggregate()
@@ -1616,9 +1671,9 @@ class Dashboard:
         showGraph,
         showHistoricalGraph
     ):
-        print("FirstLoad=" + str(FirstLoad))
-        print("showGraph=" + str(showGraph))
-        print("refresh_df=" + str(refresh_df))
+        DebugMsg("FirstLoad=" + str(FirstLoad))
+        DebugMsg("showGraph=" + str(showGraph))
+        DebugMsg("refresh_df=" + str(refresh_df))
 
         self.GlobalParams['columns_updated']=False
         DebugMsg("PrimaryLegends",Primary_Legends)
@@ -1638,7 +1693,7 @@ class Dashboard:
             refresh_df=True
             FirstLoad=True
         elif FirstLoad and os.path.exists(self.DataFile['LastGraphFile']):
-            print("Reading First Load" )
+            DebugMsg("Reading First Load" )
             self.read_lastGraphFile()
         elif refresh_df and Primary_Yaxis is not None:
             self.GraphParams["Primary_Yaxis"] = Primary_Yaxis
@@ -1680,15 +1735,15 @@ class Dashboard:
 
         new_cols=[]
         if refresh_df or FilterUpdate:
-            print("FilterUpdate=" + str(FilterUpdate))
-            print(self.GraphParams["Filters"])
+            DebugMsg("FilterUpdate=" + str(FilterUpdate))
+            DebugMsg(self.GraphParams["Filters"])
             self.filtered_df = self.df.copy()
         if refresh_df or FilterUpdate or FirstLoad:
             org_cols=set(self.filtered_df.columns)
             self.filtered_df=self.filter_sort_df(self.filtered_df,self.GraphParams["Filters"])
             new_cols=list(set(self.filtered_df.columns)- org_cols)
             self.plot_df=self.filtered_df
-            print("FilterUpdate plot_df=" + str(self.filtered_df.head(2)))
+            DebugMsg("FilterUpdate plot_df=" + str(self.filtered_df.head(2)))
 
 
         if self.GraphParams["Primary_Yaxis"] is not None and len(self.GraphParams["Primary_Yaxis"])>0:
@@ -1841,8 +1896,8 @@ if __name__ == "__main__":
         retval=[]
         if trig_id is None:
             trig_id =  dash.callback_context.triggered[0]['prop_id'].split('.')
-        print("trig_id=" + str(trig_id) + " Filter=" + filter)
-        pprint(dash.callback_context.triggered)
+        DebugMsg("trig_id=" + str(trig_id) + " Filter=" + filter)
+        DebugMsg(dash.callback_context.triggered)
         
         if trig_id[0] =="":
             FirstLoad=True
@@ -1856,14 +1911,14 @@ if __name__ == "__main__":
             FilterUpdate=True
 
         if trig_id[0]=="table-paging-with-graph" :
-            print("update_inputs : Filter Query " + filter_query)
+            DebugMsg("update_inputs : Filter Query " + filter_query)
             if trig_id[1]=="filter_query":
-                print("update_inputs : Filter Query " + filter_query)
+                DebugMsg("update_inputs : Filter Query " + filter_query)
                 if not filter_query.isspace():
                     filter=filter.strip() 
                     filter+= ("\n" + re.sub("([^=><!])=([^=])","\\1==\\2",filter_query))
             elif trig_id[1]=="sort_by":
-                print("update_inputs " + str(sort_by))
+                DebugMsg("update_inputs " + str(sort_by))
                 if not str(sort_by).isspace():
                     filter=filter.strip() 
                     filter+= ("\nSortBy:" + json.dumps(sort_by))
@@ -1885,7 +1940,7 @@ if __name__ == "__main__":
         MC.GraphParams['ShowPreAggregatedData']=chk_PreAggregatedData
         MC.update_aggregate(Aggregate_Func,new_update=True)
 
-        print("NITIn1234" + str(showGraph))
+        DebugMsg("NITIn1234" + str(showGraph))
 
         if not PreAggrClick:
             t2=MC.refresh_callback( Xaxis, GraphType, Primary_Yaxis, Primary_Legends, Aggregate_Func, 
@@ -2023,7 +2078,7 @@ if __name__ == "__main__":
         return str(get_str_dtype(sample_df, col)) + " # "  +str(col)
 
 
-  #  serve(app.server, host="0.0.0.0", port=8051)
+   # waitress.serve(app.server, host="0.0.0.0", port=8054,connection_limit=2)
     #update_output(1,None,0, 20, [], None,"",None,"",['mem_bucketed'],"Scatter",['CPU_TIME'],None,None,None,None,['refreshbtn', 'n_clicks'] )
 
     app.run_server(debug=True, port=8054)
