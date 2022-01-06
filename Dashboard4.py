@@ -1,5 +1,6 @@
 #! /usr/bin/arch -x86_64 /usr/bin/env python
 
+from logging import error
 import dash
 import dash_table
 import dash_core_components as dcc
@@ -67,10 +68,17 @@ class Dashboard:
         self.RecentFilesListPath="./recent"
         self.DashboardMode=DashboardMode
         self.ComparisonFunctionalityPlaceholder()
-        self.setDataFile(datafile,isxlsx,sheetname,skiprows,replace_with_nan)
-        self.createDashboard(self.DashboardMode)
+        df_index=self.default_df_index
+       # self.setDataFile(datafile,isxlsx,sheetname,skiprows,replace_with_nan,df_index)
+        self.createDashboard(df_index,self.DashboardMode)
         self.app = dash.Dash()
-        self.app.layout = html.Div(self.layout())
+        self.app.layout = html.Div(self.layout(df_index))
+
+    def reset_df_index(self,idx):
+        self.df[idx]=None
+        self.filtered_df[idx]=None
+        self.plot_df[idx]=None
+        self.DataFile[idx]=None
 
     def ComparisonFunctionalityPlaceholder(self):
         self.df_indexes=["1","2"]
@@ -87,7 +95,7 @@ class Dashboard:
             self.plot_df[idx]=None
             self.DataFile[idx]=None
 
-    def createDashboard(self, DashboardMode=False):
+    def createDashboard(self, df_index, DashboardMode=False):
         self.init_constants()
 #        self.df=None
         self.reset=False
@@ -105,8 +113,8 @@ class Dashboard:
         self.GlobalParams['columns_updated']=False
         self.GlobalParams['PreAggregaredData']=True
 
-        if os.path.exists(self.DataFile[self.current_df_index]['LastGraphFile']):
-            with open(self.DataFile[self.current_df_index]['LastGraphFile']) as json_file:
+        if self.DataFile[df_index] is not None and os.path.exists(self.DataFile[df_index]['LastGraphFile']):
+            with open(self.DataFile[df_index]['LastGraphFile']) as json_file:
                 self.GraphParams = json.load(json_file)
                 self.update_aggregate()
         else:
@@ -114,21 +122,22 @@ class Dashboard:
 
         self.update_aggregate()
         self.groups = [[json.dumps(self.GraphParams)]]
+        DebugMsg2("Groups:",self.groups)
 
         self.DF_read_copy = dict()
 
-        self.readFileInitDash()
-        self.updateGraphList()
+        self.readFileInitDash(df_index)
+        self.updateGraphList(df_index)
 
-        self.filtered_df[self.current_df_index] = self.df[self.current_df_index].copy()
-        self.plot_df[self.current_df_index]=self.filtered_df[self.current_df_index]
-        self.table_df=self.filtered_df[self.current_df_index]
+        self.filtered_df[df_index] = self.df[df_index].copy()
+        self.plot_df[df_index]=self.filtered_df[df_index]
+        self.table_df=self.filtered_df[df_index]
         self.initialize_figs()
         #self.update_graph()
 
-    def setDataFile(self,datafile,isxlsx,sheetname,skiprows,replace_with_nan):
+    def setDataFile(self,datafile,isxlsx,sheetname,skiprows,replace_with_nan,df_index):
         datafile1=os.path.abspath(datafile)
-        self.DataFile[self.current_df_index] = {'Path': datafile1,
+        self.DataFile[df_index] = {'Path': datafile1,
                          'isXlsx':isxlsx,
                          'Sheet': sheetname,
                          'SkipRows': skiprows,
@@ -139,7 +148,8 @@ class Dashboard:
                          'HistoricalGraphsFile' : datafile + ".History" ,
                          'SavedGraphsFile' : datafile +  ".SavedGraphs"
                         }
-        self.updateRecentFiles()
+        self.update_df(self.DataFile[df_index],df_index)
+        self.updateRecentFiles(df_index)
 
     def initialize_GraphParams(self):
         self.GraphParams["GraphId"] = ""
@@ -159,25 +169,30 @@ class Dashboard:
         self.GraphParams["PreviousOperations"] = []
         self.GraphParams["ShowPreAggregatedData"] = []
     
-    def loadMetadata(self):
-        if os.path.exists(self.DataFile[self.current_df_index]['MetadataFile']):
-            with open(self.DataFile[self.current_df_index]['MetadataFile']) as json_file:
+    def loadMetadata(self,df_index):
+        if os.path.exists(self.DataFile[df_index]['MetadataFile']):
+            with open(self.DataFile[df_index]['MetadataFile']) as json_file:
                 return json.load(json_file)  
         return None
 
-    def updateMetadata(self,header,data):
-        jsondata=self.loadMetadata()
+    def updateMetadata(self,header,data,df_index):
+        jsondata=self.loadMetadata(df_index)
         if jsondata is None:
             jsondata=dict()
         jsondata[header]=data
-        with open(self.DataFile[self.current_df_index]['MetadataFile'], "w") as outfile:
+        with open(self.DataFile[df_index]['MetadataFile'], "w") as outfile:
             json.dump(jsondata,outfile)
         
 
 
-    def updateGraphList(self):
-       self.SavedGraphList= self.getGraphList(self.DataFile[self.current_df_index]['SavedGraphsFile'])
-       self.HistoricalGraphList= self.getGraphList(self.DataFile[self.current_df_index]['HistoricalGraphsFile'])
+    def updateGraphList(self,df_index):
+        if self.DataFile[df_index] is not None: 
+            self.SavedGraphList= self.getGraphList(self.DataFile[df_index]['SavedGraphsFile'])
+            self.HistoricalGraphList= self.getGraphList(self.DataFile[df_index]['HistoricalGraphsFile'])
+        else:
+            self.SavedGraphList= dict()
+            self.HistoricalGraphList= dict()
+
 
     def getGraphList(self,GraphsFile):           
         x=None
@@ -365,26 +380,62 @@ class Dashboard:
         else:
             print("File not changed")
         return self.DF_read_copy[FileInfo['Path']].copy()
+        
     
-    def updateRecentFiles(self):
+    def getDataFileName(self,datafile):
+        name= (datafile['Path']  + "#" 
+                + str(datafile['isXlsx'])  + "#" 
+                + str(datafile['Sheet'])  + "#" 
+                + str(datafile['SkipRows'])  + "#" 
+                + str(datafile['ReplaceWithNan'])  + "#" 
+              )
+        return name
+
+    def update_df(self,Datafile,df_index):
+        self.df[df_index] = self.read_file_in_df(Datafile)
+        self.filtered_df[df_index] = self.df[df_index].copy()
+        self.plot_df[df_index]=self.filtered_df[df_index]
+        self.table_df=self.filtered_df[df_index]
+    
+    def loadLastLoadedFiles(self):
         filelist=dict()
         if os.path.exists(self.RecentFilesListPath):
             with open(self.RecentFilesListPath) as json_file:
                 filelist=json.load(json_file)  
-        name= (self.DataFile[self.current_df_index]['Path']  + "#" 
-                + str(self.DataFile[self.current_df_index]['isXlsx'])  + "#" 
-                + str(self.DataFile[self.current_df_index]['Sheet'])  + "#" 
-                + str(self.DataFile[self.current_df_index]['SkipRows'])  + "#" 
-                + str(self.DataFile[self.current_df_index]['ReplaceWithNan'])  + "#" 
-              )
-        filelist[name]=self.DataFile[self.current_df_index].copy()
+            if "LastLoadedFile" in filelist:
+                for df_index in filelist["LastLoadedFile"]:
+                    name=filelist["LastLoadedFile"][df_index]
+                    self.DataFile[df_index]=filelist["recent"][name]
+                    self.update_df(self.DataFile[df_index],df_index)
+
+    
+    def updateRecentFiles(self,df_index):
+        filelist=dict()
+        if os.path.exists(self.RecentFilesListPath):
+            with open(self.RecentFilesListPath) as json_file:
+                filelist=json.load(json_file)  
+
+        if "recent" not in filelist:
+            filelist["recent"]=dict()
+
+        if "LastLoadedFile" not in filelist:
+            filelist["LastLoadedFile"]=dict()
+        
+        name= self.getDataFileName(self.DataFile[df_index]) 
+        filelist["LastLoadedFile"][df_index]=name
+        filelist["recent"][name]=self.DataFile[df_index].copy()
+        filelist["recent"][name]['LastModified'] = 0
+
         with open(self.RecentFilesListPath, "w") as outfile:
             json.dump(filelist,outfile)
 
-    def readFileInitDash(self):
-        if self.df[self.current_df_index] is None:
-            self.df[self.current_df_index] = self.read_file_in_df(self.DataFile[self.current_df_index])
-      
+    def readFileInitDash(self,df_index):
+        if self.df[df_index] is None:
+            if  self.DataFile[df_index] is not None:
+                self.df[df_index] = self.read_file_in_df(self.DataFile[df_index])
+            else:
+                self.df[df_index]=pd.DataFrame()
+                
         self.figs = dict()
 
 
@@ -411,6 +462,7 @@ class Dashboard:
         filters_tmp_p = list(OrderedDict.fromkeys(self.GraphParams["Xaxis"] + self.GraphParams["Primary_Legends"]))
         filters_tmp_p2=list(OrderedDict.fromkeys(filters_tmp_p + keep_cols))
 
+        DebugMsg("Test1 df columns",df.columns)
         DebugMsg("Test1 filters_tmp_p2",filters_tmp_p2)
         DebugMsg("Test1 filters_tmp_p",filters_tmp_p)
         DebugMsg("Test1 keep_cols",keep_cols)
@@ -561,7 +613,7 @@ class Dashboard:
 
 
     
-    def update_fig(self, df, yaxis_cols, legend_cols, secondary_axis, fig,number_of_dfs,current_df_count):
+    def update_fig(self, df, yaxis_cols, legend_cols, secondary_axis, fig,number_of_dfs,current_df_count,df_index):
         if len(yaxis_cols) == 0:
             return fig
 
@@ -658,7 +710,7 @@ class Dashboard:
                         self.GlobalParams['PrimaryAxisTitles'].add(yaxis_col)
 
                 if self.add_df_index_in_legend:
-                    legend_name="F" + str(self.current_df_index) + ":" + str(legend_name)
+                    legend_name="F" + str(df_index) + ":" + str(legend_name)
 
                 #print("NITinq2")
                 #print(self.GlobalParams['SecAxisTitles'])
@@ -780,7 +832,7 @@ class Dashboard:
             grpid = self.get_groupid(group)
             self.figs[grpid] = go.Figure()
 
-    def update_graph(self):
+    def update_graph(self,plot_df_indexes):
         number_of_dfs=0
         self.add_df_index_in_legend=False
         for idx in self.df_indexes:
@@ -794,14 +846,20 @@ class Dashboard:
             grpid = self.get_groupid(group)
             self.figs[grpid] = go.Figure()
             self.figs[grpid] = make_subplots(specs=[[{"secondary_y": True}]])
-            org_idx=self.current_df_index
             current_df_count=0
-            for idx in self.df_indexes:
+            df_indexes=self.df_indexes
+            if 'All' in plot_df_indexes:
+                df_indexes=self.df_indexes
+            elif 'None' in plot_df_indexes:
+                df_indexes=[]
+            else:
+                df_indexes=plot_df_indexes
+
+            for df_index in df_indexes:
                 current_df_count+=1
-                self.current_df_index=idx
-                if self.df[self.current_df_index] is None:
+                if self.df[df_index] is None:
                     continue
-                df=self.plot_df[self.current_df_index]
+                df=self.plot_df[df_index]
                 if df is None:
                     continue
                 self.figs[grpid] =self.update_fig(
@@ -811,9 +869,9 @@ class Dashboard:
                     False,
                     self.figs[grpid],
                     number_of_dfs,
-                    current_df_count
+                    current_df_count,
+                    df_index
                 )
-            self.current_df_index=org_idx
 
             self.figs[grpid].update_layout(
                 hoverlabel=dict(namelength=-1),
@@ -855,7 +913,7 @@ class Dashboard:
         return ""
 
 
-    def filter_sort_df(self,df, Allfilter, update_prev=True):
+    def filter_sort_df(self,df, Allfilter, df_index,update_prev=True):
         ## update_prev added to remove the recursive loop
         filters=Allfilter.split("\n")
         step_cnt=0
@@ -879,13 +937,13 @@ class Dashboard:
                 if (re.match("^\s*\S*\s*=",filter_expr) and (not re.match("^\s*\S*\s*=\s*=",filter_expr) )) :
                     df=pd.eval(filter_expr,target=df)
                     for col in df.columns:
-                        if col not in self.df[self.current_df_index].columns :
+                        if col not in self.df[df_index].columns :
                             if (not self.aggregate) or (not update_prev):
-                                self.df[self.current_df_index][col]=np.nan
+                                self.df[df_index][col]=np.nan
                             self.GlobalParams['columns_updated']=True
                     if (not self.aggregate) or (not update_prev):
                         DebugMsg("updated df.index")
-                        self.df[self.current_df_index].loc[df.index]=df
+                        self.df[df_index].loc[df.index]=df
                         update_previous_operations=True
                         if update_prev:
                             Operations_Done="\n".join(filters[:step_cnt])
@@ -933,23 +991,29 @@ class Dashboard:
         return dff
 
     def get_number_of_records(self):
-        if self.GlobalParams['PreAggregaredData']:
-            df=self.filtered_df[self.current_df_index]
-        else:
-            df=self.plot_df[self.current_df_index]
-        if df is not None:
-            return df.shape[0]
-        else:
-            return 0
+        retval=[]
+        for df_index in self.df_indexes:
+            if self.GlobalParams['PreAggregaredData']:
+                df=self.filtered_df[df_index]
+            else:
+                df=self.plot_df[df_index]
+            if df is not None:
+                retval.append(html.H3("    File" + df_index + ": " + str(df.shape[0]),style={'margin-left': "40px"}))
+            else:
+                retval.append(html.H3("    File" + df_index + ": " + str(0)))
+        return retval
 
 
-    def update_table(self,page_current, page_size):
-        if self.GlobalParams['PreAggregaredData']:
-            df=self.filtered_df[self.current_df_index]
+    def update_table(self,page_current, page_size,df_index):
+        if df_index == 'None':
+            df=pd.DataFrame()
+        elif self.GlobalParams['PreAggregaredData']:
+            df=self.filtered_df[df_index]
+            self.table_df=df
         else:
-            df=self.plot_df[self.current_df_index]
-        self.table_df=df
-
+            df=self.plot_df[df_index]
+            self.table_df=df
+    
         retval=df.iloc[
             page_current * page_size : (page_current + 1) * page_size
         ].to_dict("records")
@@ -959,9 +1023,11 @@ class Dashboard:
         return self.figs[grpid]
 
     def get_dropdown_values(self, type,df=None):
-        if df is None:
-            df=self.df[self.current_df_index]
         list_of_dic = []
+        if df is None:
+            if self.df[self.default_df_index] is None:
+                return list_of_dic
+            df=self.df[self.default_df_index]
         if type == "GraphType":
             for col in self.GraphTypeMap:
                 list_of_dic.append({"label": col, "value": col})
@@ -983,19 +1049,31 @@ class Dashboard:
         elif type == "HistoricalGraphNames":
             for col in self.HistoricalGraphList:
                 list_of_dic.append({"label": col, "value": col})
+        elif type == "plot_index":
+            list_of_dic.append({"label": "All", "value": "All"})
+            list_of_dic.append({"label": "None", "value": "None"})
+            for idx in self.df_indexes:
+                if self.DataFile[idx] is not None:
+                    list_of_dic.append({"label": idx, "value": idx})
+        elif type == "df_index":
+            list_of_dic.append({"label": "None", "value": "None"})
+            for idx in self.df_indexes:
+                if self.DataFile[idx] is not None:
+                    list_of_dic.append({"label": idx, "value": idx})
         elif type == "input_recentlyLoadedFiles":
             filelist=[]
             if os.path.exists(self.RecentFilesListPath):
                 with open(self.RecentFilesListPath) as json_file:
                     filelist=json.load(json_file)  
-            for col in filelist:
-                list_of_dic.append({"label": col, "value": col})
+                    if "recent" in filelist:
+                        for col in filelist["recent"]:
+                            list_of_dic.append({"label": col, "value": col})
         else :
             for col in df.columns:
                 list_of_dic.append({"label": col, "value": col})
         return list_of_dic
 
-    def layout_tab(self,display):
+    def layout_tab(self,display,df_index):
         selected_tab='tab-basic'
         tabs=html.Div([
             dcc.Tabs(
@@ -1099,13 +1177,21 @@ class Dashboard:
             html.Div(
                 [
                     html.H3("Additional_Labels",style=dict(display=disp,width='15%')),
+                    html.Div([
                     dcc.Dropdown(
                         id="input_{}".format("Scatter_Labels"),
                         options=self.get_dropdown_values("Scatter_Labels"),
                         value=None,
                         multi=True,
-                        style=dict(display=disp,width='85%')
-                    ),
+                    )],style=dict(display=disp,width='65%')) ,
+                    html.Div(style=dict(display=disp,width='5%')),
+                    html.Div([
+                    dcc.Dropdown(
+                        id="select_plot_df_index",
+                        options=self.get_dropdown_values("plot_index"),
+                        value="All",
+                        multi=True,
+                    )],style=dict(display=disp,width='10%')) ,
                 ],
                 style=dict( display= "table",width='100%'),
             )
@@ -1114,7 +1200,7 @@ class Dashboard:
         return divs
 
 
-    def layout_filepath(self):
+    def layout_filepath(self,df_index):
         disp='inline-block'
         divs=[]
         divs.append(
@@ -1130,7 +1216,7 @@ class Dashboard:
                         )],
                         style=dict(display=disp,width='30%',height='100%',verticalAlign='top')
                     ),
-                    dcc.Checklist(id='chk_isXlsx', options=[ {'label': 'xlsx', 'value': 'True'} ], value=['True'], style=dict(display='inline-block',width='3%',verticalAlign='top')) , 
+                    dcc.Checklist(id='chk_isXlsx', options=[ {'label': 'xlsx', 'value': 'True'} ], value=[], style=dict(display='inline-block',width='3%',verticalAlign='top')) , 
                     html.Div([
                     dcc.Input(
                         id="input_loadFileSheetName",
@@ -1174,7 +1260,7 @@ class Dashboard:
         )
         return divs
 
-    def layout_filepath2(self):
+    def layout_filepath2(self,df_index):
         disp='inline-block'
         divs=[]
         divs.append(
@@ -1190,7 +1276,7 @@ class Dashboard:
                         )],
                         style=dict(display=disp,width='30%',height='100%',verticalAlign='top')
                     ),
-                    dcc.Checklist(id='chk_isXlsx2', options=[ {'label': 'xlsx', 'value': 'True'} ], value=['True'], style=dict(display='inline-block',width='3%',verticalAlign='top')) , 
+                    dcc.Checklist(id='chk_isXlsx2', options=[ {'label': 'xlsx', 'value': 'True'} ], value=[], style=dict(display='inline-block',width='3%',verticalAlign='top')) , 
                     html.Div([
                     dcc.Input(
                         id="input_loadFileSheetName2",
@@ -1238,10 +1324,18 @@ class Dashboard:
         divs=[]
         divs.append(html.Button(id="hidden-reset_collector1", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-reset_collector2", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-page_refresh", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-page_refresh2", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-loadfile", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-loadfile2", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden2-loadfile", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden2-loadfile2", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-dropdown_options_dfindex1", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-dropdown_options_dfindex2", style={"display": "none",'width':'100%','border':'2px solid black'}))
         return divs
 
     
-    def layout(self):
+    def layout(self,df_index):
         divs=[]
         divs.append(html.Div(id="hidden-div1", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Div(id="hidden-div2", style={"display": "none",'width':'100%','border':'2px solid black'}))
@@ -1290,7 +1384,8 @@ class Dashboard:
             )
         )
 
-        divs.append(self.layout_tab(disp1))
+        divs.append(self.layout_tab(disp1,df_index))
+        
         
         save_layout=[ 
             html.Div(
@@ -1298,7 +1393,16 @@ class Dashboard:
                     dbc.Button("Save", id="btn_save",style=dict(display='inline-table',width='10%' )),
                     dcc.Input(id="input_save",type="text",placeholder="GraphName",style=dict(display='inline-table',width='25%' )),
                     dbc.Button("Clear Filters", id="btn_clearFilters",style=dict(display='inline-table',width='10%' )),
-                    dcc.Checklist(id='chk_PreAggregated', options=[ {'label': 'PreAggregatedData', 'value': 'Yes'} ], value=['Yes'], style=dict(display='inline-table',width='15%'))  
+                    dcc.Checklist(id='chk_PreAggregated', options=[ {'label': 'PreAggregatedData', 'value': 'Yes'} ], value=['Yes'], style=dict(display='inline-table',width='15%'))  ,
+                    html.Div([
+                    dcc.Dropdown(
+                        id="select_data_df_index",
+                        options=self.get_dropdown_values("df_index"),
+                        value=self.default_df_index,
+                        multi=False)],
+                        style=dict(display=disp,width='20%',height='100%',verticalAlign='center')
+                    )
+
                 ]
                 + [html.Div(
                  [
@@ -1309,14 +1413,14 @@ class Dashboard:
                 , style=dict(display=disp1,width='100%'),
             )
         ]
-        divs = self.hidden_callback_collectors() +  self.layout_filepath() + self.layout_filepath2() +   divs + self.layout1() + save_layout   +self.dataframe_layout()
-        divs.append(html.H2(" No of Records :  "))
+        divs = self.hidden_callback_collectors() +  self.layout_filepath(df_index) + self.layout_filepath2(df_index) +   divs + self.layout1() + save_layout   +self.dataframe_layout(df_index)
+        divs.append(html.H2(" Number of Records :  "))
         divs.append(html.H3(" - ",id="lbl_records"))
         ret=html.Div(divs,
                         style={"overflowX": "auto","overflowY": "auto"})
         return ret
 
-    def filter_layout(self):
+    def filter_layout(self,df_index):
         return [
             html.Div(id='container_col_select',
                     children=dcc.Dropdown(id='col_select',
@@ -1339,7 +1443,6 @@ class Dashboard:
                                         options=[])),
             html.Div([
                 dcc.DatePickerRange(id='date_filter',
-
                                     start_date=dt.datetime.now().date(),
                                     end_date=dt.datetime.now().date(),
                                     max_date_allowed=dt.datetime.now().date(),
@@ -1373,16 +1476,14 @@ class Dashboard:
             style.append({'if': {'column_id': col}, 'minWidth': pixel})
         return style
 
-    def dataframe_layout(self):
-        #for i in sorted(self.plot_df[self.current_df_index].columns):
-           #print(i)
+    def dataframe_layout(self,df_index):
         if self.ControlMode:
             disp=None
         else:
             disp='none'
         columns=["","","","",""]
-        if self.plot_df[self.current_df_index] is not None:
-            columns=self.plot_df[self.current_df_index].columns[:5]
+        if self.plot_df[df_index] is not None:
+            columns=self.plot_df[df_index].columns[:5]
         html_divs = [
             html.Div(
                 className="row",
@@ -1416,9 +1517,11 @@ class Dashboard:
 
     def update_inputs(self,FirstLoad):
         retval = []
+        DebugMsg2("update_inputs Firstload", FirstLoad)
         for txtbox in self.GraphParamsOrder:
             if FirstLoad:
                 retval.append(self.GraphParams[txtbox])
+                DebugMsg2("update_inputs self.GraphParams[txtbox]", self.GraphParams[txtbox])
             else:
                 retval.append(dash.no_update)
         if FirstLoad:
@@ -1435,10 +1538,10 @@ class Dashboard:
         Inputs.append(Input("btn_download", "n_clicks"))
         return Inputs
 
-    def refresh_callback3(self):
+    def refresh_callback3(self,df_index):
         retval = []
         retval = dcc.send_data_frame(
-            self.plot_df[self.current_df_index].to_excel, "data.xlsx", sheet_name="Sheet1"
+            self.plot_df[df_index].to_excel, "data.xlsx", sheet_name="Sheet1"
         )
         return retval
 
@@ -1476,26 +1579,26 @@ class Dashboard:
         Inputs.append(State("input_save", "value"))
         return Inputs
 
-    def refresh_callback5(self, n_clicks,GraphName):
+    def refresh_callback5(self, n_clicks,GraphName,df_index):
         retval = ""
         if (n_clicks is not None) and (GraphName is not None):
             self.GraphParams['Name']=GraphName
             self.set_Graphid()
             graphlist={}
-            if os.path.exists(self.DataFile[self.current_df_index]['SavedGraphsFile']):
-                with open(self.DataFile[self.current_df_index]['SavedGraphsFile']) as json_file:
+            if os.path.exists(self.DataFile[df_index]['SavedGraphsFile']):
+                with open(self.DataFile[df_index]['SavedGraphsFile']) as json_file:
                     graphlist=json.load(json_file)  
             graphlist[GraphName]=self.GraphParams
-            with open(self.DataFile[self.current_df_index]['SavedGraphsFile'], "w") as outfile:
+            with open(self.DataFile[df_index]['SavedGraphsFile'], "w") as outfile:
                 json.dump(graphlist,outfile)
-            self.save_history()
+            self.save_history(df_index)
         return retval
 
-    def save_history(self):
+    def save_history(self,df_index):
         retval = ""
         graphlist=None
-        if os.path.exists(self.DataFile[self.current_df_index]['HistoricalGraphsFile']):
-            with open(self.DataFile[self.current_df_index]['HistoricalGraphsFile']) as json_file:
+        if self.DataFile[df_index] is not None and  os.path.exists(self.DataFile[df_index]['HistoricalGraphsFile']):
+            with open(self.DataFile[df_index]['HistoricalGraphsFile']) as json_file:
                 graphlist=json.load(json_file)  
         if graphlist is None:
             graphlist={}
@@ -1524,8 +1627,9 @@ class Dashboard:
         if len(graphlist) > 100:
             graphlist = {k: graphlist[k] for k in list(graphlist)[:100]}
 
-        with open(self.DataFile[self.current_df_index]['HistoricalGraphsFile'], "w") as outfile:
-            json.dump(graphlist,outfile)
+        if self.DataFile[df_index] is not None :
+            with open(self.DataFile[df_index]['HistoricalGraphsFile'], "w") as outfile:
+                json.dump(graphlist,outfile)
         return retval
 
 
@@ -1556,9 +1660,6 @@ class Dashboard:
             self.GlobalParams['PreAggregaredData']=True
         else:
             self.GlobalParams['PreAggregaredData']=False
-
-
-
 
     def blank_to_nan(self,list1,unique=False):
         tmp=list()
@@ -1604,18 +1705,12 @@ class Dashboard:
         return Inputs
 
 
-    def callback_update_options(self,n_clicks):
+    def callback_update_options(self,n_clicks,df_index):
         DebugMsg("callback_update_options n_clicks" , n_clicks)
         retval = list()
         for txtbox in self.GraphParamsOrder2:
-            if n_clicks > 0:
-                retval.append(self.get_dropdown_values(txtbox,self.filtered_df[self.current_df_index]))
-            else:
-                retval.append(dash.no_update)
-        if n_clicks > 0:
-            retval.append(self.get_dropdown_values("Scatter_Labels", self.filtered_df[self.current_df_index]))
-        else:
-            retval.append(dash.no_update)
+            retval.append(self.get_dropdown_values(txtbox,self.filtered_df[self.default_df_index]))
+        retval.append(self.get_dropdown_values("Scatter_Labels",  self.filtered_df[self.default_df_index]))
         return retval
 
     def get_OutputsReset(self):
@@ -1627,18 +1722,37 @@ class Dashboard:
         return Inputs
 
 
-    def callbackReset(self,nclicks):
+    def callbackReset(self):
         DebugMsg("Reset Done")
-        if nclicks>0:
-            self.reset=True
-            self.initialize_GraphParams()
-            self.df[self.current_df_index] = self.read_file_in_df(self.DataFile[self.current_df_index])
+        self.reset=True
+        self.initialize_GraphParams()
         return 0
 
-    def get_OutputsLoadFile(self):
+
+    def get_OutputsPageRefresh(self):
         Outputs = list()
-        Outputs.append(Output("input_recentlyLoadedFiles", "options"))
+        Outputs.append(Output("hidden2-loadfile", "n_clicks"))
+        Outputs.append(Output("hidden2-loadfile2", "n_clicks"))
+        return Outputs
+
+    def get_InputsPageRefresh(self):
+        Inputs = list()
+        Inputs.append(Input("hidden-page_refresh", "n_clicks"))
+        return Inputs
+
+
+    def callbackPageRefresh(self):
+        DebugMsg("Page Refresh")
+        self.initialize_GraphParams()
+        for df_index in self.df_indexes:
+            if self.DataFile[df_index] is not None:
+                self.df[df_index] = self.read_file_in_df(self.DataFile[df_index])
+        return 0
+
+    def get_OutputsLoadRecentFile(self):
+        Outputs = list()
         Outputs.append(Output("hidden-reset_collector1", "n_clicks"))
+        Outputs.append(Output("hidden-dropdown_options_dfindex1", "n_clicks"))
         Outputs.append(Output("input_loadFileName", "value"))
         Outputs.append(Output("chk_isXlsx", "value"))
         Outputs.append(Output("input_loadFileSheetName", "value"))
@@ -1646,10 +1760,21 @@ class Dashboard:
         Outputs.append(Output("input_replaceWithNan", "value"))
         return Outputs
 
+    def get_InputsLoadRecentFile(self):
+        Inputs = list()
+        Inputs.append(Input("input_recentlyLoadedFiles", "value"))
+        return Inputs
+
+
+    def get_OutputsLoadFile(self):
+        Outputs = list()
+        Outputs.append(Output("input_recentlyLoadedFiles", "options"))
+        Outputs.append(Output("hidden-loadfile", "n_clicks"))
+        return Outputs
+
     def get_InputsLoadFile(self):
         Inputs = list()
         Inputs.append(Input("btn_load", "n_clicks"))
-        Inputs.append(Input("input_recentlyLoadedFiles", "value"))
         Inputs.append(State("input_loadFileName", "value"))
         Inputs.append(State("chk_isXlsx", "value"))
         Inputs.append(State("input_loadFileSheetName", "value"))
@@ -1657,22 +1782,36 @@ class Dashboard:
         Inputs.append(State("input_replaceWithNan", "value"))
         return Inputs
 
-    def callbackLoadFile(self,nclicks,filename,isxlsx,sheetname,skiprows,replaceWithNan):
+    def get_OutputsLoadFileValue(self):
+        Outputs = list()
+        Outputs.append(Output("input_recentlyLoadedFiles", "value"))
+        return Outputs
 
+    def get_InputsLoadFileValue(self):
+        Inputs = list()
+        Inputs.append(Input("hidden-loadfile", "n_clicks"))
+        Inputs.append(Input("hidden2-loadfile", "n_clicks"))
+        return Inputs
+
+
+    def callbackLoadFile(self,filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index,refreshDashboard):
         filename=os.path.abspath(filename)
         DebugMsg2("Loading Done")
-        if (self.DataFile[self.current_df_index] is None) or (filename != self.DataFile[self.current_df_index]['Path']) :
+        if (self.DataFile[df_index] is None) or (filename != self.DataFile[df_index]['Path']) :
             DebugMsg2("isxlsx=",isxlsx)
-            self.setDataFile(filename,isxlsx,sheetname,skiprows,replaceWithNan)
-            if nclicks>0 and (self.current_df_index == self.default_df_index):
-                self.createDashboard(self.DashboardMode)
+            if df_index != self.default_df_index and self.DataFile[self.default_df_index] is None:
+                raise ValueError("Load the first file first")
+            else:
+                self.setDataFile(filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index)
+
+            if refreshDashboard:
+                self.createDashboard(df_index,self.DashboardMode)
         return 0
 
-
-    def get_OutputsLoadFile2(self):
+    def get_OutputsLoadRecentFile2(self):
         Outputs = list()
-        Outputs.append(Output("input_recentlyLoadedFiles2", "options"))
         Outputs.append(Output("hidden-reset_collector2", "n_clicks"))
+        Outputs.append(Output("hidden-dropdown_options_dfindex2", "n_clicks"))
         Outputs.append(Output("input_loadFileName2", "value"))
         Outputs.append(Output("chk_isXlsx2", "value"))
         Outputs.append(Output("input_loadFileSheetName2", "value"))
@@ -1680,16 +1819,41 @@ class Dashboard:
         Outputs.append(Output("input_replaceWithNan2", "value"))
         return Outputs
 
+    def get_InputsLoadRecentFile2(self):
+        Inputs = list()
+        Inputs.append(Input("input_recentlyLoadedFiles2", "value"))
+        return Inputs
+
+    def get_OutputsLoadFileValue2(self):
+        Outputs = list()
+        Outputs.append(Output("input_recentlyLoadedFiles2", "value"))
+        return Outputs
+
+    def get_InputsLoadFileValue2(self):
+        Inputs = list()
+        Inputs.append(Input("hidden-loadfile2", "n_clicks"))
+        Inputs.append(Input("hidden2-loadfile2", "n_clicks"))
+        return Inputs
+
+
+
+    def get_OutputsLoadFile2(self):
+        Outputs = list()
+        Outputs.append(Output("input_recentlyLoadedFiles2", "options"))
+        Outputs.append(Output("hidden-loadfile2", "n_clicks"))
+        return Outputs
+
     def get_InputsLoadFile2(self):
         Inputs = list()
         Inputs.append(Input("btn_load2", "n_clicks"))
-        Inputs.append(Input("input_recentlyLoadedFiles2", "value"))
         Inputs.append(State("input_loadFileName2", "value"))
         Inputs.append(State("chk_isXlsx2", "value"))
         Inputs.append(State("input_loadFileSheetName2", "value"))
         Inputs.append(State("input_skiprows2", "value"))
         Inputs.append(State("input_replaceWithNan2", "value"))
         return Inputs
+
+   
 
     def get_reset_collectors_inputs(self):
         Inputs = list()
@@ -1698,7 +1862,23 @@ class Dashboard:
         return Inputs
 
     def get_reset_collectors_outputs(self):
-        return Output("btn_reset", "n_clicks")
+        Outputs = list()
+        Outputs.append( Output("hidden-page_refresh2", "n_clicks"))
+        return Outputs
+
+    def get_Outputs_update_dropdown_options(self):
+        Outputs = list()
+        Outputs.append( Output("select_data_df_index", "options"))
+        Outputs.append( Output("select_plot_df_index", "options"))
+        return Outputs
+
+    def get_Inputs_update_dropdown_options(self):
+        Inputs = list()
+        Inputs.append(Input("hidden-dropdown_options_dfindex1", "n_clicks"))
+        Inputs.append(Input("hidden-dropdown_options_dfindex2", "n_clicks"))
+        return Inputs
+
+
 
 
 
@@ -1730,6 +1910,7 @@ class Dashboard:
     def get_Inputs(self):
         Inputs = list()
         Inputs.append(Input("refreshbtn", "n_clicks"))
+        Inputs.append(Input("hidden-page_refresh2", "n_clicks"))
         Inputs.append(Input("input_graphName", "value")),
         Inputs.append(Input("input_HistoricalgraphName", "value")),
         Inputs.append(Input("table-paging-with-graph", "page_current")),
@@ -1740,6 +1921,8 @@ class Dashboard:
       #  Inputs.append(Input("table-paging-with-graph", "derived_filter_query_structure"))
         Inputs.append(Input("btn_clearFilters", "n_clicks"))
         Inputs.append(Input("chk_PreAggregated", "value"))
+        Inputs.append(Input("select_data_df_index", "value"))
+        Inputs.append(State("select_plot_df_index", "value"))
         Inputs.append(State('textarea-filter', 'value'))
         for txtbox in self.GraphParamsOrder:
             Inputs.append(State("input_{}".format(txtbox), "value"))
@@ -1760,17 +1943,21 @@ class Dashboard:
         FirstLoad,
         FilterUpdate,
         showGraph,
-        showHistoricalGraph
+        showHistoricalGraph,
+        plot_df_indexes,
+        org_idx
     ):
-        DebugMsg("FirstLoad=" + str(FirstLoad))
+        DebugMsg2("FirstLoad=" + str(FirstLoad))
         DebugMsg("showGraph=" + str(showGraph))
         DebugMsg("refresh_df=" + str(refresh_df))
+        DebugMsg("reset=" + str(self.reset))
 
         self.GlobalParams['columns_updated']=False
         DebugMsg("PrimaryLegends",Primary_Legends)
+        DebugMsg("PrimaryLegends",Primary_Legends)
         retval = []
 
-        org_idx=self.current_df_index
+        GraphChanged=False
 
         if self.reset :
             pass
@@ -1779,14 +1966,16 @@ class Dashboard:
             self.update_aggregate()
             refresh_df=True
             FirstLoad=True
+            GraphChanged=True
         elif showHistoricalGraph is not None:
             self.GraphParams=self.HistoricalGraphList[showHistoricalGraph].copy()
             self.update_aggregate()
             refresh_df=True
             FirstLoad=True
-        elif FirstLoad and os.path.exists(self.DataFile[self.default_df_index]['LastGraphFile']):
-            DebugMsg2("Reading First Load" )
+            GraphChanged=True
+        elif FirstLoad and self.DataFile[self.default_df_index] is not None and  os.path.exists(self.DataFile[self.default_df_index]['LastGraphFile']):
             self.read_lastGraphFile(self.default_df_index)
+            DebugMsg2("Read First Load Graphparams=" ,self.GraphParams)
         elif refresh_df and Primary_Yaxis is not None:
             self.GraphParams["Primary_Yaxis"] = Primary_Yaxis
             self.GraphParams["Xaxis"] = Xaxis
@@ -1805,8 +1994,7 @@ class Dashboard:
         
         #print("SecondaryLegends")
         #print(self.GraphParams["Secondary_Legends"])
-        DebugMsg("Test0",self.GraphParams['Xaxis'])
-        DebugMsg("Test0",self.GraphParams['Primary_Legends'])
+        DebugMsg2("Test0 Aggregate_Func",self.GraphParams['Aggregate_Func'])
 
         for col in ["Primary_Legends","Scatter_Labels","Secondary_Legends"]:
             if self.GraphParams[col] is None:
@@ -1814,65 +2002,63 @@ class Dashboard:
 
 
         if refresh_df:
-            self.readFileInitDash()
+            self.readFileInitDash(org_idx)
 
-        for idx in self.df_indexes:
-            self.current_df_index=idx
-            if self.df[self.current_df_index] is None:
+        for df_index in self.df_indexes:
+            DebugMsg("Test0 df_index",df_index)
+            if self.df[df_index] is None:
                 continue
             if FirstLoad:
-                DebugMsg("FirstLoad df",self.df[self.current_df_index])
+                DebugMsg("FirstLoad df shape" + "df_index=" + df_index ,self.df[df_index].shape)
                 if len(self.GraphParams['PreviousOperations'])> 0:
                     for filter in self.GraphParams['PreviousOperations']:
-                        self.filter_sort_df(self.df[self.current_df_index],filter,False)
-                    DebugMsg("FirstLoad2 df",self.df[self.current_df_index])
-                    self.filtered_df[self.current_df_index] = self.df[self.current_df_index].copy()
+                        self.filter_sort_df(self.df[df_index],filter,df_index,False)
+                    DebugMsg("FirstLoad2 df",self.df[df_index])
+                    self.filtered_df[df_index] = self.df[df_index].copy()
 
             new_cols=[]
             if refresh_df or FilterUpdate:
                 DebugMsg("FilterUpdate=" + str(FilterUpdate))
                 DebugMsg(self.GraphParams["Filters"])
-                self.filtered_df[self.current_df_index] = self.df[self.current_df_index].copy()
+                self.filtered_df[df_index] = self.df[df_index].copy()
             if refresh_df or FilterUpdate or FirstLoad:
-                org_cols=set(self.filtered_df[self.current_df_index].columns)
-                self.filtered_df[self.current_df_index]=self.filter_sort_df(self.filtered_df[self.current_df_index],self.GraphParams["Filters"])
-                new_cols=list(set(self.filtered_df[self.current_df_index].columns)- org_cols)
-                self.plot_df[self.current_df_index]=self.filtered_df[self.current_df_index]
-                DebugMsg("FilterUpdate plot_df=" + str(self.filtered_df[self.current_df_index].head(2)))
+                DebugMsg("self.df[" + df_index + "]", self.df[df_index])
+                DebugMsg("self.filtered_df[" + df_index + "]", self.filtered_df[df_index])
+                org_cols=set(self.filtered_df[df_index].columns)
+                self.filtered_df[df_index]=self.filter_sort_df(self.filtered_df[df_index],self.GraphParams["Filters"],df_index)
+                new_cols=list(set(self.filtered_df[df_index].columns)- org_cols)
+                self.plot_df[df_index]=self.filtered_df[df_index]
+                DebugMsg("FilterUpdate plot_df=" + str(self.filtered_df[df_index].head(2)))
 
-        self.current_df_index=org_idx
 
         if self.GraphParams["Primary_Yaxis"] is not None and len(self.GraphParams["Primary_Yaxis"])>0:
-            for idx in self.df_indexes:
-                self.current_df_index=idx
-                if self.df[self.current_df_index] is None:
+            for df_index in self.df_indexes:
+                if self.df[df_index] is None:
                     continue
-                DebugMsg("First Load PRevious Operations",self.filtered_df[self.current_df_index].columns)
-                self.plot_df[self.current_df_index] = self.extract_data(self.filtered_df[self.current_df_index], new_cols)
+                DebugMsg2("First Load PRevious Operations " + df_index ,self.filtered_df[df_index].columns)
+                self.plot_df[df_index] = self.extract_data(self.filtered_df[df_index], new_cols)
                 if self.aggregate:
-                    self.plot_df[self.current_df_index]=self.filter_sort_df(self.plot_df[self.current_df_index],self.GraphParams["FilterAgregatedData"])
-            self.current_df_index=org_idx
-            self.update_graph()
+                    self.plot_df[df_index]=self.filter_sort_df(self.plot_df[df_index],self.GraphParams["FilterAgregatedData"],df_index)
+            self.update_graph(plot_df_indexes)
+
             #pprint(self.GraphParams)
             #print("self.aggregate1: " + str(self.aggregate))
         else:
-            for idx in self.df_indexes:
-                self.current_df_index=idx
-                if self.df[self.current_df_index] is None:
+            for df_index in self.df_indexes:
+                if self.df[df_index] is None:
                     continue
-                self.plot_df[self.current_df_index]=self.filtered_df[self.current_df_index] 
-            self.current_df_index=org_idx
+                self.plot_df[df_index]=self.filtered_df[df_index] 
         
-        add_df_index_in_legend=False
+        
         self.GlobalParams['Datatable_columns']=[]
-        if self.plot_df[self.current_df_index] is not None:
-            for col in self.plot_df[self.current_df_index].columns:
+        if self.plot_df[org_idx] is not None:
+            for col in self.plot_df[org_idx].columns:
                 #print(col)
                 if not col.startswith('#'):
                     self.GlobalParams['Datatable_columns'].append(col)
 
-        if (not FirstLoad) and (not self.reset):
-            with open(MC.DataFile[MC.current_df_index]['LastGraphFile'], "w") as outfile:
+        if ((not FirstLoad) or GraphChanged) and (not self.reset):
+            with open(MC.DataFile[MC.default_df_index]['LastGraphFile'], "w") as outfile:
                 MC.set_Graphid()
                 json.dump(MC.GraphParams, outfile)
         self.reset=False
@@ -1885,7 +2071,7 @@ class Dashboard:
             if self.figs[grpid] is None:
                 self.figs[grpid]=go.Figure()
             retval.append(self.figs[grpid])
-            self.save_history()
+            self.save_history(MC.current_df_index)
 
         return retval
 
@@ -1949,13 +2135,15 @@ if __name__ == "__main__":
 
     app = MC.app
 
-    @app.callback(MC.get_Outputs(), MC.get_Inputs(),prevent_initial_callback=True)
+    @app.callback(MC.get_Outputs(), MC.get_Inputs(),prevent_initial_call=True)
     def update_output(
-        n_clicks,graphname, historicalgraph,
+        n_clicks,n_clicks_refresh, graphname, historicalgraph,
         page_current, page_size, sort_by, advfltr_click,
         filter_query,
         click_clrfilter,
         chk_PreAggregatedData,
+        data_df_index,
+        plot_df_indexes,
         filter, 
         Xaxis,
         GraphType,
@@ -1991,25 +2179,28 @@ if __name__ == "__main__":
         showHistoricalGraph=None
         clearFilter=False
         PreAggrClick=False
-        #print("page_current=" + str(page_current))
-        #print("p=" + str(page_size))
-        #print("sort_by=" + str(sort_by))
-        #print("filter=" + str(filter))
-        #print("n_clicks=" + str(n_clicks))
+        DebugMsg("page_current=" + str(page_current))
+        DebugMsg("p=" + str(page_size))
+        DebugMsg("sort_by=" + str(sort_by))
+        DebugMsg("filter=" + str(filter))
+        DebugMsg2("n_clicks=" + str(n_clicks))
         GraphType=GraphType
         retval=[]
         if trig_id is None:
             trig_id =  dash.callback_context.triggered[0]['prop_id'].split('.')
-        DebugMsg("trig_id=" + str(trig_id) + " Filter=" + filter)
         DebugMsg(dash.callback_context.triggered)
         
-        if trig_id[0] =="":
+        if trig_id[0] =="" :
             FirstLoad=True
-        elif trig_id[0] =="refreshbtn":
+        elif trig_id[0] =="hidden-page_refresh2" and (n_clicks_refresh is not None and n_clicks_refresh > 0):
+            FirstLoad=True
+
+        elif trig_id[0] =="refreshbtn" :
             refresh_df=True
+            DebugMsg2("ab FirstLoad=" , FirstLoad)
             if n_clicks==0 :
                 FirstLoad=True
-        elif trig_id[0] =="chk_PreAggregated":
+        elif trig_id[0] =="chk_PreAggregated" or trig_id[0] =="select_data_df_index":
             PreAggrClick=True
         else:
             FilterUpdate=True
@@ -2041,6 +2232,7 @@ if __name__ == "__main__":
             showHistoricalGraph=historicalgraph
 #        DebugMsg("#### DEBUG RETVAL", retval)
 
+        DebugMsg2("2 FirstLoad=" , FirstLoad)
         MC.GraphParams['ShowPreAggregatedData']=chk_PreAggregatedData
         MC.update_aggregate(Aggregate_Func,new_update=True)
 
@@ -2050,13 +2242,13 @@ if __name__ == "__main__":
             t2=MC.refresh_callback( Xaxis, GraphType, Primary_Yaxis, Primary_Legends, Aggregate_Func, 
                                 Secondary_Legends, Scatter_Labels,  filter, chk_PreAggregatedData,
                                 refresh_df,
-                                FirstLoad,FilterUpdate,showGraph,showHistoricalGraph)
+                                FirstLoad,FilterUpdate,showGraph,showHistoricalGraph,plot_df_indexes,MC.current_df_index)
         else:
             t2=[dash.no_update,dash.no_update]
-        t1=[MC.update_table(page_current, page_size)]
+        t1=[MC.update_table(page_current, page_size,data_df_index)]
 
         t3=[[{"name": i, "id": i} for i in MC.GlobalParams['Datatable_columns']]]
-        t4=[str(MC.get_number_of_records())]
+        t4=[MC.get_number_of_records()]
         if (showGraph is not None) and MC.ControlMode:
             FirstLoad=True
 
@@ -2078,7 +2270,7 @@ if __name__ == "__main__":
         else:
             retval.append(1)
 
-        MC.updateGraphList()
+        MC.updateGraphList(MC.current_df_index)
         retval.append(MC.get_dropdown_values("SavedGraphNames"))
         retval.append(MC.get_dropdown_values("HistoricalGraphNames"))
         retval.append(MC.get_dropdown_values("Secondary_Legends"))
@@ -2091,16 +2283,13 @@ if __name__ == "__main__":
         retval.append(MC.create_conditional_style())
         return retval
 
-    @app.callback(MC.get_Outputs2(), MC.get_Inputs2(),prevent_initial_callback=True)
+    @app.callback(MC.get_Outputs2(), MC.get_Inputs2(),prevent_initial_call=True)
     def update_options( n_clicks):
-        DebugMsg("update oprions", n_clicks)
-        if n_clicks is None:
-            n_clicks=0
-        return MC.callback_update_options(n_clicks)
+        return MC.callback_update_options(n_clicks,MC.current_df_index)
 
-    @app.callback(MC.get_OutputsReset(), MC.get_InputsReset(),prevent_initial_callback=True)
+    @app.callback(MC.get_OutputsReset(), MC.get_InputsReset(),prevent_initial_call=True)
     def clearAl( n_clicks):
-        return MC.callbackReset(n_clicks)
+        return MC.callbackReset()
 
     @app.callback(MC.get_Outputs3(), MC.get_Inputs3(), prevent_initial_call=True)
     def func(n_clicks):
@@ -2112,74 +2301,120 @@ if __name__ == "__main__":
 #    def agg_chkbox(value):
 #        return MC.refresh_callback4(value)
 
-    @app.callback(MC.get_Outputs5(), MC.get_Inputs5(),prevent_initial_callback=True)
+    @app.callback(MC.get_Outputs5(), MC.get_Inputs5(),prevent_initial_call=True)
     def saveGraph(clicks,value):
-        return MC.refresh_callback5(clicks,value)
+        return MC.refresh_callback5(clicks,value,MC.current_df_index)
 
-    @app.callback(MC.get_Outputs_tab(), MC.get_Inputs_tab(),prevent_initial_callback=True)
+    @app.callback(MC.get_Outputs_tab(), MC.get_Inputs_tab(),prevent_initial_call=True)
     def updateTab(tab):
         return MC.render_tab_content(tab)
 
-    @app.callback(MC.get_OutputsLoadFile(), MC.get_InputsLoadFile(),prevent_initial_callback=True)
-    def loadFile(clicks,select_value,input_value,isxlsx,sheetname,skiprows,replaceWithNaN):
-        trig_id =  dash.callback_context.triggered[0]['prop_id'].split('.')
-        value=None
-        isxlsx1=False
-        DebugMsg("load trig id" , trig_id[0])
-        if trig_id[0] =="btn_load":
-            value=input_value
-        elif trig_id[0] =="input_recentlyLoadedFiles":
-            temp=select_value.split("#")
-            value=temp[0]
-            isxlsx=temp[1]
-            sheetname=None
-            if isxlsx == "True":
-                isxlsx1=True
-                sheetname=temp[2]
-            skiprows=temp[3]
-            replaceWithNaN=temp[4]
-        if value is not None:
-            MC.current_df_index="2"
-            MC.callbackLoadFile(clicks,value,isxlsx1,sheetname,skiprows,replaceWithNaN)
-            return [MC.get_dropdown_values("input_recentlyLoadedFiles"), 1,value,[isxlsx],sheetname,skiprows,replaceWithNaN]
-        else:
-            return [dash.no_update,dash.no_update,dash.no_update,dash.no_update,dash.no_update,dash.no_update,dash.no_update]
 
-    @app.callback(MC.get_OutputsLoadFile2(), MC.get_InputsLoadFile2(),prevent_initial_callback=True)
-    def loadFile2(clicks,select_value,input_value,isxlsx,sheetname,skiprows,replaceWithNaN):
-        trig_id =  dash.callback_context.triggered[0]['prop_id'].split('.')
+    @app.callback(MC.get_OutputsLoadRecentFile(), MC.get_InputsLoadRecentFile(),prevent_initial_call=True)
+    def loadRecentFile(input_value):
+        df_index="1"
         value=None
         isxlsx1=False
-        DebugMsg("load trig id" , trig_id[0])
-        if trig_id[0] =="btn_load2":
-            value=input_value
-        elif trig_id[0] =="input_recentlyLoadedFiles2":
-            temp=select_value.split("#")
-            value=temp[0]
-            isxlsx=temp[1]
-            sheetname=None
-            if isxlsx == "True":
-                isxlsx1=True
-                sheetname=temp[2]
-            skiprows=temp[3]
-            replaceWithNaN=temp[4]
+        if input_value is None:
+            MC.reset_df_index(df_index)
+            return [dash.no_update,1,"",[],"","",""]
+        temp=input_value.split("#")
+        value=temp[0]
+        isxlsx=temp[1]
+        sheetname=None
+        if isxlsx == "True":
+            isxlsx1=True
+            sheetname=temp[2]
+        skiprows=temp[3]
+        replaceWithNaN=temp[4]
         if value is not None:
-            MC.current_df_index="2"
-            MC.callbackLoadFile(clicks,value,isxlsx1,sheetname,skiprows,replaceWithNaN)
-            return [MC.get_dropdown_values("input_recentlyLoadedFiles"), 1,value,[isxlsx],sheetname,skiprows,replaceWithNaN]
+            MC.callbackLoadFile(value,isxlsx1,sheetname,skiprows,replaceWithNaN,df_index,True)
+            return [1,1,value,[isxlsx],sheetname,skiprows,replaceWithNaN]
+
+    @app.callback(MC.get_OutputsLoadFile(), MC.get_InputsLoadFile(),prevent_initial_call=True)
+    def loadFile(clicks,input_value,isxlsx,sheetname,skiprows,replaceWithNaN):
+        isxlsx1=False
+        if 'True' in isxlsx :
+            isxlsx1=True
+            isxlsx=True
+        if input_value is not None:
+            df_index="1"
+            MC.callbackLoadFile(input_value,isxlsx1,sheetname,skiprows,replaceWithNaN,df_index,False)
+            return [MC.get_dropdown_values("input_recentlyLoadedFiles"), 1]
+
+    @app.callback(MC.get_OutputsLoadFileValue(), MC.get_InputsLoadFileValue(),prevent_initial_call=True)
+    def loadFileValue(clicks1,clicks2):
+        DebugMsg2("Datafile val",MC.DataFile['1'])
+        if MC.DataFile['1'] is not None:
+            return [MC.getDataFileName(MC.DataFile['1'])]
         else:
-            return [dash.no_update,dash.no_update,dash.no_update,dash.no_update,dash.no_update,dash.no_update,dash.no_update]
-        
-    @app.callback(MC.get_reset_collectors_outputs(), MC.get_reset_collectors_inputs(),prevent_initial_callback=True)
-    def loadFile2(clicks1,clicks2):
-        retval=dash.no_update
+            return [dash.no_update]
+
+
+    @app.callback(MC.get_OutputsLoadRecentFile2(), MC.get_InputsLoadRecentFile2(),prevent_initial_call=True)
+    def loadRecentFile2(input_value):
+        df_index="2"
+        value=None
+        isxlsx1=False
+        if input_value is None:
+            MC.reset_df_index(df_index)
+            return [dash.no_update,1,"",[],"","",""]
+
+        temp=input_value.split("#")
+        value=temp[0]
+        isxlsx=temp[1]
+        sheetname=None
+        if isxlsx == "True":
+            isxlsx1=True
+            sheetname=temp[2]
+        skiprows=temp[3]
+        replaceWithNaN=temp[4]
+        if value is not None:
+            MC.callbackLoadFile(value,isxlsx1,sheetname,skiprows,replaceWithNaN,df_index,False)
+            return [1,1,value,[isxlsx],sheetname,skiprows,replaceWithNaN]
+
+    @app.callback(MC.get_OutputsLoadFile2(), MC.get_InputsLoadFile2(),prevent_initial_call=True)
+    def loadFile2(clicks,input_value,isxlsx,sheetname,skiprows,replaceWithNaN):
+        isxlsx1=False
+        if 'True' in isxlsx :
+            isxlsx1=True
+            isxlsx=True
+        if input_value is not None:
+            df_index="2"
+            MC.callbackLoadFile(input_value,isxlsx1,sheetname,skiprows,replaceWithNaN,df_index,False)
+            return [MC.get_dropdown_values("input_recentlyLoadedFiles"), 1]
+            
+    @app.callback(MC.get_OutputsLoadFileValue2(), MC.get_InputsLoadFileValue2(),prevent_initial_call=True)
+    def loadFileValue2(clicks1,clicks2):
+        if MC.DataFile['2'] is not None:
+            DebugMsg2("loadFileValue2 updated value")
+            return [MC.getDataFileName(MC.DataFile['2'])]
+        else:
+            return [dash.no_update]
+            
+
+
+    @app.callback(MC.get_reset_collectors_outputs(), MC.get_reset_collectors_inputs(),prevent_initial_call=True)
+    def loadFilecomb(clicks1,clicks2):
         trig_id =  dash.callback_context.triggered[0]['prop_id'].split('.')
         if trig_id[0] =="hidden-reset_collector1" and clicks1 > 0:
             retval=1
+            return [retval]
         elif trig_id[0] =="hidden-reset_collector2" and clicks2 > 0:
-            retval=1
-        return retval
+            retval=2
+            return [retval]
+        return [dash.no_update]
 
+
+    @app.callback(MC.get_Outputs_update_dropdown_options(), MC.get_Inputs_update_dropdown_options(),prevent_initial_call=True)
+    def updateDropDownOptions(clicks1,clicks2):
+        return [MC.get_dropdown_values("df_index"),MC.get_dropdown_values("plot_index")]
+
+    @app.callback(MC.get_OutputsPageRefresh(),MC.get_InputsPageRefresh())
+    def page_refresh(clicks):
+        MC.loadLastLoadedFiles()
+        #return [1,dash.no_update] 
+        return [1,1] 
 
 
     #@app.callback(Output('table-paging-with-graph', 'data'),
