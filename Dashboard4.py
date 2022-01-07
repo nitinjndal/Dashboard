@@ -47,7 +47,10 @@ def DebugMsg(msg1,msg2=None,printmsg=False):
             print(msg2)
         print("")
 
-def DebugMsg2(msg1,msg2=None,printmsg=True):
+def DebugMsg2(msg1,msg2=None,printmsg=False):
+    DebugMsg(msg1,msg2,printmsg)
+
+def DebugMsg3(msg1,msg2=None,printmsg=True):
     DebugMsg(msg1,msg2,printmsg)
 
 def get_xlsx_sheet_names(xlsx_file):
@@ -111,7 +114,7 @@ class Dashboard:
         self.GlobalParams['LegendTitle']="Legend"
         self.GlobalParams['Datatable_columns']=[]
         self.GlobalParams['columns_updated']=False
-        self.GlobalParams['PreAggregaredData']=True
+        self.GlobalParams['PreAggregatedData']=True
 
         if self.DataFile[df_index] is not None and os.path.exists(self.DataFile[df_index]['LastGraphFile']):
             with open(self.DataFile[df_index]['LastGraphFile']) as json_file:
@@ -136,20 +139,26 @@ class Dashboard:
         #self.update_graph()
 
     def setDataFile(self,datafile,isxlsx,sheetname,skiprows,replace_with_nan,df_index):
-        datafile1=os.path.abspath(datafile)
-        self.DataFile[df_index] = {'Path': datafile1,
-                         'isXlsx':isxlsx,
-                         'Sheet': sheetname,
-                         'SkipRows': skiprows,
-                         'ReplaceWithNan' : replace_with_nan, 
-                         'LastModified' : 0 ,
-                         'MetadataFile' : datafile + ".dashjsondata" , 
-                         'LastGraphFile' : datafile + ".LastGraphType" ,
-                         'HistoricalGraphsFile' : datafile + ".History" ,
-                         'SavedGraphsFile' : datafile +  ".SavedGraphs"
-                        }
-        self.update_df(self.DataFile[df_index],df_index)
-        self.updateRecentFiles(df_index)
+        if datafile is not None:
+            datafile1=os.path.abspath(datafile)
+            self.DataFile[df_index] = {'Path': datafile1,
+                            'isXlsx':isxlsx,
+                            'Sheet': sheetname,
+                            'SkipRows': skiprows,
+                            'ReplaceWithNan' : replace_with_nan, 
+                            'LastModified' : 0 ,
+                            'MetadataFile' : datafile + ".dashjsondata" , 
+                            'LastGraphFile' : datafile + ".LastGraphType" ,
+                            'HistoricalGraphsFile' : datafile + ".History" ,
+                            'SavedGraphsFile' : datafile +  ".SavedGraphs"
+                            }
+            self.update_df(self.DataFile[df_index],df_index)
+            self.updateRecentFiles(df_index)
+        else:
+            self.DataFile[df_index]=None
+            self.reset_df_index(df_index)
+            self.updateRecentFiles(df_index)
+
 
     def initialize_GraphParams(self):
         self.GraphParams["GraphId"] = ""
@@ -366,7 +375,12 @@ class Dashboard:
             if FileInfo['isXlsx']:
                 df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'])
             else:
-                df=pd.read_csv(FileInfo['Path'], sep="\t")
+                #df=pd.read_csv(FileInfo['Path'], sep="\t")
+                DebugMsg3("Reading File123")
+                sep= FileInfo['Sheet']
+                if FileInfo['Sheet']==None:
+                    sep="\t"
+                df=pd.read_csv(FileInfo['Path'], sep=sep)
 
             replace_dict=dict()
             if FileInfo['ReplaceWithNan'] is not None:
@@ -421,10 +435,13 @@ class Dashboard:
         if "LastLoadedFile" not in filelist:
             filelist["LastLoadedFile"]=dict()
         
-        name= self.getDataFileName(self.DataFile[df_index]) 
-        filelist["LastLoadedFile"][df_index]=name
-        filelist["recent"][name]=self.DataFile[df_index].copy()
-        filelist["recent"][name]['LastModified'] = 0
+        if self.DataFile[df_index] is not None:
+            name= self.getDataFileName(self.DataFile[df_index]) 
+            filelist["LastLoadedFile"][df_index]=name
+            filelist["recent"][name]=self.DataFile[df_index].copy()
+            filelist["recent"][name]['LastModified'] = 0
+        else:
+            del(filelist["LastLoadedFile"][df_index])
 
         with open(self.RecentFilesListPath, "w") as outfile:
             json.dump(filelist,outfile)
@@ -993,21 +1010,21 @@ class Dashboard:
     def get_number_of_records(self):
         retval=[]
         for df_index in self.df_indexes:
-            if self.GlobalParams['PreAggregaredData']:
+            if self.GlobalParams['PreAggregatedData']:
                 df=self.filtered_df[df_index]
             else:
                 df=self.plot_df[df_index]
             if df is not None:
                 retval.append(html.H3("    File" + df_index + ": " + str(df.shape[0]),style={'margin-left': "40px"}))
             else:
-                retval.append(html.H3("    File" + df_index + ": " + str(0)))
+                retval.append(html.H3("    File" + df_index + ": " + str("Not loaded"),style={'margin-left': "40px"}))
         return retval
 
 
     def update_table(self,page_current, page_size,df_index):
         if df_index == 'None':
             df=pd.DataFrame()
-        elif self.GlobalParams['PreAggregaredData']:
+        elif self.GlobalParams['PreAggregatedData']:
             df=self.filtered_df[df_index]
             self.table_df=df
         else:
@@ -1657,9 +1674,9 @@ class Dashboard:
                 self.GraphParams[param] = []
 
         if "Yes" in self.GraphParams['ShowPreAggregatedData']:
-            self.GlobalParams['PreAggregaredData']=True
+            self.GlobalParams['PreAggregatedData']=True
         else:
-            self.GlobalParams['PreAggregaredData']=False
+            self.GlobalParams['PreAggregatedData']=False
 
     def blank_to_nan(self,list1,unique=False):
         tmp=list()
@@ -1752,6 +1769,7 @@ class Dashboard:
     def get_OutputsLoadRecentFile(self):
         Outputs = list()
         Outputs.append(Output("hidden-reset_collector1", "n_clicks"))
+        Outputs.append(Output("btn_reset", "n_clicks"))
         Outputs.append(Output("hidden-dropdown_options_dfindex1", "n_clicks"))
         Outputs.append(Output("input_loadFileName", "value"))
         Outputs.append(Output("chk_isXlsx", "value"))
@@ -1782,6 +1800,26 @@ class Dashboard:
         Inputs.append(State("input_replaceWithNan", "value"))
         return Inputs
 
+    def get_Inputschk_isXlsx(self):
+        Inputs = list()
+        Inputs.append(Input("chk_isXlsx", "value"))
+        return Inputs
+
+    def get_Outputschk_isXlsx(self):
+        Outputs = list()
+        Outputs.append(Output("input_loadFileSheetName", "placeholder"))
+        return Outputs
+
+    def get_Inputschk_isXlsx2(self):
+        Inputs = list()
+        Inputs.append(Input("chk_isXlsx2", "value"))
+        return Inputs
+
+    def get_Outputschk_isXlsx2(self):
+        Outputs = list()
+        Outputs.append(Output("input_loadFileSheetName2", "placeholder"))
+        return Outputs
+
     def get_OutputsLoadFileValue(self):
         Outputs = list()
         Outputs.append(Output("input_recentlyLoadedFiles", "value"))
@@ -1795,13 +1833,15 @@ class Dashboard:
 
 
     def callbackLoadFile(self,filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index,refreshDashboard):
-        filename=os.path.abspath(filename)
-        DebugMsg2("Loading Done")
-        if (self.DataFile[df_index] is None) or (filename != self.DataFile[df_index]['Path']) :
+        if filename is not None:
+            filename=os.path.abspath(filename)
+        DebugMsg2("Loading Done filename", filename)
+        if (self.DataFile[df_index] is None) or ( filename is None) or  (filename != self.DataFile[df_index]['Path']) :
             DebugMsg2("isxlsx=",isxlsx)
             if df_index != self.default_df_index and self.DataFile[self.default_df_index] is None:
                 raise ValueError("Load the first file first")
             else:
+                DebugMsg2("reset dfindex=",df_index)
                 self.setDataFile(filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index)
 
             if refreshDashboard:
@@ -1985,7 +2025,7 @@ class Dashboard:
             self.GraphParams["Secondary_Legends"] = Secondary_Legends
             self.GraphParams["Scatter_Labels"] = Scatter_Labels
         elif FilterUpdate:
-            if self.aggregate and (not self.GlobalParams['PreAggregaredData']):
+            if self.aggregate and (not self.GlobalParams['PreAggregatedData']):
                 self.GraphParams["FilterAgregatedData"] = filter
                 self.GraphParams["SortAgregatedData"] = ""
             else:
@@ -2035,7 +2075,7 @@ class Dashboard:
             for df_index in self.df_indexes:
                 if self.df[df_index] is None:
                     continue
-                DebugMsg2("First Load PRevious Operations " + df_index ,self.filtered_df[df_index].columns)
+                DebugMsg2("First Load self.df[df_index] " + df_index ,self.df[df_index])
                 self.plot_df[df_index] = self.extract_data(self.filtered_df[df_index], new_cols)
                 if self.aggregate:
                     self.plot_df[df_index]=self.filter_sort_df(self.plot_df[df_index],self.GraphParams["FilterAgregatedData"],df_index)
@@ -2057,7 +2097,8 @@ class Dashboard:
                 if not col.startswith('#'):
                     self.GlobalParams['Datatable_columns'].append(col)
 
-        if ((not FirstLoad) or GraphChanged) and (not self.reset):
+        DebugMsg2("self.reset " , self.reset)
+        if ((not FirstLoad) or GraphChanged) and (not self.reset) and MC.DataFile[MC.default_df_index] is not None:
             with open(MC.DataFile[MC.default_df_index]['LastGraphFile'], "w") as outfile:
                 MC.set_Graphid()
                 json.dump(MC.GraphParams, outfile)
@@ -2258,7 +2299,7 @@ if __name__ == "__main__":
         t5=MC.update_inputs(FirstLoad)
         retval=t1  + t2+t3 + t4 
 
-        if MC.aggregate and (not MC.GlobalParams['PreAggregaredData']):
+        if MC.aggregate and (not MC.GlobalParams['PreAggregatedData']):
             retval.append(MC.GraphParams['FilterAgregatedData'])
         else:
             retval.append(MC.GraphParams['Filters'])
@@ -2316,8 +2357,8 @@ if __name__ == "__main__":
         value=None
         isxlsx1=False
         if input_value is None:
-            MC.reset_df_index(df_index)
-            return [dash.no_update,1,"",[],"","",""]
+            MC.callbackLoadFile(input_value,isxlsx1,None,None,None,df_index,True)
+            return [dash.no_update,1,1,"",[],"","",""]
         temp=input_value.split("#")
         value=temp[0]
         isxlsx=temp[1]
@@ -2329,7 +2370,7 @@ if __name__ == "__main__":
         replaceWithNaN=temp[4]
         if value is not None:
             MC.callbackLoadFile(value,isxlsx1,sheetname,skiprows,replaceWithNaN,df_index,True)
-            return [1,1,value,[isxlsx],sheetname,skiprows,replaceWithNaN]
+            return [1,dash.no_update,1,value,[isxlsx],sheetname,skiprows,replaceWithNaN]
 
     @app.callback(MC.get_OutputsLoadFile(), MC.get_InputsLoadFile(),prevent_initial_call=True)
     def loadFile(clicks,input_value,isxlsx,sheetname,skiprows,replaceWithNaN):
@@ -2357,7 +2398,7 @@ if __name__ == "__main__":
         value=None
         isxlsx1=False
         if input_value is None:
-            MC.reset_df_index(df_index)
+            MC.callbackLoadFile(input_value,isxlsx1,None,None,None,df_index,False)
             return [dash.no_update,1,"",[],"","",""]
 
         temp=input_value.split("#")
@@ -2415,6 +2456,20 @@ if __name__ == "__main__":
         MC.loadLastLoadedFiles()
         #return [1,dash.no_update] 
         return [1,1] 
+
+    @app.callback(MC.get_Outputschk_isXlsx(),MC.get_Inputschk_isXlsx())
+    def Xlsx(isxlsx):
+        if 'True' in isxlsx :
+            return ["SheetName"]
+        else :
+            return ["Separator"]
+    
+    @app.callback(MC.get_Outputschk_isXlsx2(),MC.get_Inputschk_isXlsx2())
+    def Xlsx2(isxlsx):
+        if 'True' in isxlsx :
+            return ["SheetName"]
+        else :
+            return ["Separator"]
 
 
     #@app.callback(Output('table-paging-with-graph', 'data'),
