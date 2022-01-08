@@ -40,14 +40,14 @@ print("############################################")
 print("############################################")
 debug=False
 
-def DebugMsg(msg1,msg2=None,printmsg=False):
+def DebugMsg(msg1,msg2=None,printmsg=True):
     if debug and printmsg:
         print(msg1,end=" " )
         if msg2 is not None:
             print(msg2)
         print("")
 
-def DebugMsg2(msg1,msg2=None,printmsg=False):
+def DebugMsg2(msg1,msg2=None,printmsg=True):
     DebugMsg(msg1,msg2,printmsg)
 
 def DebugMsg3(msg1,msg2=None,printmsg=True):
@@ -75,7 +75,7 @@ class Dashboard:
        # self.setDataFile(datafile,isxlsx,sheetname,skiprows,replace_with_nan,df_index)
         self.createDashboard(df_index,self.DashboardMode)
         self.app = dash.Dash()
-        self.app.layout = html.Div(self.layout(df_index))
+        self.app.layout = html.Div(self.layout())
 
     def reset_df_index(self,idx):
         self.df[idx]=None
@@ -116,9 +116,10 @@ class Dashboard:
         self.GlobalParams['columns_updated']=False
         self.GlobalParams['PreAggregatedData']=True
 
-        if self.DataFile[df_index] is not None and os.path.exists(self.DataFile[df_index]['LastGraphFile']):
-            with open(self.DataFile[df_index]['LastGraphFile']) as json_file:
-                self.GraphParams = json.load(json_file)
+        if self.DataFile[df_index] is not None :
+            tmp=self.loadMetadata(df_index,"LastGraph")
+            if tmp is not None:
+                self.GraphParams = tmp
                 self.update_aggregate()
         else:
             self.initialize_GraphParams()
@@ -132,10 +133,15 @@ class Dashboard:
         self.readFileInitDash(df_index)
         self.updateGraphList(df_index)
 
+        DebugMsg2("Groups3:",self.groups)
         self.filtered_df[df_index] = self.df[df_index].copy()
+        DebugMsg2("Groups4:",self.groups)
         self.plot_df[df_index]=self.filtered_df[df_index]
+        DebugMsg2("Groups5:",self.groups)
         self.table_df=self.filtered_df[df_index]
+        DebugMsg2("Groups6:",self.groups)
         self.initialize_figs()
+        DebugMsg2("Groups6:",self.groups)
         #self.update_graph()
 
     def setDataFile(self,datafile,isxlsx,sheetname,skiprows,replace_with_nan,df_index):
@@ -148,9 +154,6 @@ class Dashboard:
                             'ReplaceWithNan' : replace_with_nan, 
                             'LastModified' : 0 ,
                             'MetadataFile' : datafile + ".dashjsondata" , 
-                            'LastGraphFile' : datafile + ".LastGraphType" ,
-                            'HistoricalGraphsFile' : datafile + ".History" ,
-                            'SavedGraphsFile' : datafile +  ".SavedGraphs"
                             }
             self.update_df(self.DataFile[df_index],df_index)
             self.updateRecentFiles(df_index)
@@ -178,11 +181,17 @@ class Dashboard:
         self.GraphParams["PreviousOperations"] = []
         self.GraphParams["ShowPreAggregatedData"] = []
     
-    def loadMetadata(self,df_index):
-        if os.path.exists(self.DataFile[df_index]['MetadataFile']):
+    def loadMetadata(self,df_index,header=None):
+        jsondata=None
+        if self.DataFile[df_index] is not None and os.path.exists(self.DataFile[df_index]['MetadataFile']):
             with open(self.DataFile[df_index]['MetadataFile']) as json_file:
-                return json.load(json_file)  
-        return None
+                jsondata=json.load(json_file)  
+        if jsondata is not None and header is not None: 
+            if header in jsondata:
+                jsondata=jsondata[header]
+            else:
+                jsondata=None
+        return jsondata
 
     def updateMetadata(self,header,data,df_index):
         jsondata=self.loadMetadata(df_index)
@@ -196,22 +205,20 @@ class Dashboard:
 
     def updateGraphList(self,df_index):
         if self.DataFile[df_index] is not None: 
-            self.SavedGraphList= self.getGraphList(self.DataFile[df_index]['SavedGraphsFile'])
-            self.HistoricalGraphList= self.getGraphList(self.DataFile[df_index]['HistoricalGraphsFile'])
+            self.SavedGraphList= self.getGraphList(df_index,'SavedGraphs')
+            self.HistoricalGraphList= self.getGraphList(df_index,'HistoricalGraphs')
         else:
             self.SavedGraphList= dict()
             self.HistoricalGraphList= dict()
 
-
-    def getGraphList(self,GraphsFile):           
-        x=None
-        if os.path.exists(GraphsFile):
-            with open(GraphsFile) as json_file:
-                x= json.load(json_file)  
+    def getGraphList(self,df_index,type):           
+        # type can be SavedGraphs/HistoricalGraphs
+        x=self.loadMetadata(df_index,type)
         if x is None:
             return dict()
         else:
             return x
+
 
     def set_Graphid(self):           
         x=self.GraphParams.copy()
@@ -228,6 +235,25 @@ class Dashboard:
                 else:
                     df1[col]=df1[col].astype(self.dtypes[col])
         return df1
+
+    def get_dypes(self,cols):
+        update_done=False
+        dtypes=self.df[self.default_df_index][cols].dtypes.to_frame('dtypes').reset_index().set_index('index')['dtypes'].astype(str).to_dict()
+        return json.dumps(dtypes)
+
+
+    def update_dtype(self,cols,dtype):
+        update_done=False
+        for col in cols:
+            for idx in self.df_indexes:
+                if self.df[idx] is not None:
+                    self.df[idx][col]=self.df[idx][col].astype(self.AvailableDataTypes[dtype])
+                    update_done=True
+        if update_done:
+            dtypes=self.df[self.default_df_index].dtypes.to_frame('dtypes').reset_index().set_index('index')['dtypes'].astype(str).to_dict()
+            self.updateMetadata("ColumnsDataTypes",dtypes,self.default_df_index)
+
+
 
     def init_constants(self):
         self.dtypes= {
@@ -364,23 +390,34 @@ class Dashboard:
             "Primary_Legends",
             "Aggregate_Func"
         ]
+
+        self.AvailableDataTypes= {
+            'string':str, 
+            'int' : int, 
+            'float': float,
+            'datetime' : 'datetime64[ns]', 
+            'boolean': bool
+        }
+
+
         self.GraphParamsOrder = self.GraphParamsOrder2 + [ "Secondary_Legends"]
 
 
     def read_file_in_df(self,  FileInfo):
+        dtypes=self.loadMetadata(self.default_df_index,'ColumnsDataTypes')
         mtime = os.path.getmtime(FileInfo['Path'])
         if mtime > FileInfo['LastModified']:
             print("Reading file " + str(FileInfo['Path'])  )
             FileInfo['LastModified'] = mtime
             if FileInfo['isXlsx']:
-                df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'])
+                df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'],dtype=dtypes)
             else:
                 #df=pd.read_csv(FileInfo['Path'], sep="\t")
                 DebugMsg3("Reading File123")
                 sep= FileInfo['Sheet']
                 if FileInfo['Sheet']==None:
                     sep="\t"
-                df=pd.read_csv(FileInfo['Path'], sep=sep)
+                df=pd.read_csv(FileInfo['Path'], sep=sep,dtype=dtypes)
 
             replace_dict=dict()
             if FileInfo['ReplaceWithNan'] is not None:
@@ -932,6 +969,7 @@ class Dashboard:
 
     def filter_sort_df(self,df, Allfilter, df_index,update_prev=True):
         ## update_prev added to remove the recursive loop
+        newFilters=Allfilter
         filters=Allfilter.split("\n")
         step_cnt=0
         update_previous_operations=False
@@ -964,13 +1002,15 @@ class Dashboard:
                         update_previous_operations=True
                         if update_prev:
                             Operations_Done="\n".join(filters[:step_cnt])
+                            Allfilter="\n".join(filters[step_cnt:])
                 else:
                     #print(df.dtypes)
                     df=df[pd.eval(filter_expr)]
         if update_previous_operations and update_prev:
             if len(self.GraphParams['PreviousOperations']) == 0  or self.GraphParams['PreviousOperations'][-1] != Operations_Done:
                 self.GraphParams['PreviousOperations'].append(Operations_Done)
-        return df
+                newFilters=Allfilter
+        return df,newFilters
 
 
     def filter_sort_df2(self,dff, sort_by, filter):
@@ -1085,12 +1125,15 @@ class Dashboard:
                     if "recent" in filelist:
                         for col in filelist["recent"]:
                             list_of_dic.append({"label": col, "value": col})
+        elif type == "AvailableDataTypes":
+            for idx in self.AvailableDataTypes:
+                list_of_dic.append({"label": idx, "value": idx})
         else :
             for col in df.columns:
                 list_of_dic.append({"label": col, "value": col})
         return list_of_dic
 
-    def layout_tab(self,display,df_index):
+    def layout_tab(self,display):
         selected_tab='tab-basic'
         tabs=html.Div([
             dcc.Tabs(
@@ -1111,17 +1154,7 @@ class Dashboard:
                         className='custom-tab',
                         selected_className='custom-tab--selected'
                     ),
-                    dcc.Tab(
-                        label='Tab three, multiline',
-                        value='tab-3', className='custom-tab',
-                        selected_className='custom-tab--selected'
-                    ),
-                    dcc.Tab(
-                        label='Tab four',
-                        value='tab-4',
-                        className='custom-tab',
-                        selected_className='custom-tab--selected'
-                    ),
+                    
                 ]),
             html.Div(id='tabs-content-classes',children=self.render_tab_content(selected_tab))
         ], 
@@ -1131,32 +1164,32 @@ class Dashboard:
 
 
     def get_Outputs_tab(self):
-        return Output('tabs-content-classes', 'children')
+        Outputs = list()
+        Outputs.append(Output("tab1_container", "style"))
+        Outputs.append(Output("tab2_container", "style"))
+        return Outputs
 
     def get_Inputs_tab(self):
         return Input('tabs-with-classes', 'value')
 
-    def render_tab_content(self,tab):
+    def get_tab_containers_styles(self,tab):
+        number_of_tabs=2
+        tab_container_styles=[dict(display='none')]* number_of_tabs
+        current_tab=-1
         if tab == 'tab-basic':
-            return self.layout_tab1() 
+            current_tab=0
         elif tab == 'tab-2':
-            return html.Div([
-                html.H3('Tab content 2')
-            ])
-        elif tab == 'tab-3':
-            return html.Div([
-                html.H3('Tab content 3')
-            ])
-        elif tab == 'tab-4':
-            return html.Div([
-                html.H3('Tab content 4')
-            ])
+            current_tab=1
+        tab_container_styles[current_tab]=dict(display='block')
+        return tab_container_styles
+
+    def render_tab_content(self,tab):
+        tabs_styles=self.get_tab_containers_styles('tab-basic')
+        return self.layout_tab1(tabs_styles[0]) +  self.layout_tab2(tabs_styles[1]) 
+        
 
 
-    
-    def layout_tab1(self):
-        divs=[]
-        new_divs = []
+    def layout_plot_inputs(self):
         tab1_display="inline-table"
         if self.ControlMode:
             disp1="table"
@@ -1164,6 +1197,8 @@ class Dashboard:
         else:
             disp1='none'
             disp='none'
+        new_divs = []
+
         for txtbox in self.GraphParamsOrder:
             multi=True
             clearable=True
@@ -1187,10 +1222,8 @@ class Dashboard:
             new_divs.append( html.Div(style=dict(display=tab1_display,width='5%')))
 
 
-        new_divs = html.Div(new_divs, style=dict(display=disp1,width='100%'))
-        divs.append(new_divs)
 
-        divs.append(
+        new_divs.append(
             html.Div(
                 [
                     html.H3("Additional_Labels",style=dict(display=disp,width='15%')),
@@ -1213,11 +1246,75 @@ class Dashboard:
                 style=dict( display= "table",width='100%'),
             )
         )
-        divs=html.Div(divs)
+        new_divs = html.Div(new_divs, style=dict(display=disp1,width='100%'))
+        return new_divs
+
+    def layout_set_data_types(self):
+        disp='inline-block'
+        divs=[]
+        divs.append(
+            html.Div([
+        
+            html.Div([
+            html.H3("Change data type of columns" )], style=dict(display=disp,width='100%',height='100%', verticalAlign='center')),
+
+            html.Div([
+                dcc.Dropdown(
+                    id="input_cols_dytpe",
+                    options=self.get_dropdown_values(""),
+                    value=None,
+                    multi=True,
+                )], 
+                style=dict(display=disp,width='25%',height='100%', verticalAlign='center')
+            ),
+        
+            html.Div([ html.H1()],style=dict(display=disp,width='5%')), 
+
+            html.Div([
+            html.H3("Current Dtypes", id="lbl_current_dype")], style=dict(display=disp,width='10%',height='100%', verticalAlign='center')),
+            
+            html.Div([
+            html.H3("Select new Datatype" )], style=dict(display=disp,width='15%',height='100%', verticalAlign='center', textAlign='right')),
+
+            html.Div([
+            html.H1()],style=dict(display=disp,width='5%')),
+            html.Div([
+                dcc.Dropdown(
+                    id="input_cols_dytpe_val",
+                    options=self.get_dropdown_values("AvailableDataTypes"),
+                    value='string',
+                    multi=False,
+                    clearable=False
+                )], 
+                
+                style=dict(display=disp,width='20%',height='100%', verticalAlign='center')
+            ),
+            html.Div([ html.H1()],style=dict(display=disp,width='2%')),
+            html.Button("Apply", id="btn_apply_dtype", n_clicks=0,style=dict(verticalAlign='top',display=disp,width='5%',height='100%')),
+
+            ],style={'display':'block','width':'100%','height' : '35px'} 
+            )
+        )
+        divs.append(html.Div([html.P([ html.Br()] * 20 ,id='dd-output-container')], style=dict(display=disp,width='1%')))
+        return divs
+    
+    def layout_tab1(self,tab_style):
+        divs=[]
+        divs=self.plot_top()
+
+        divs.append(self.layout_plot_inputs())
+        divs=divs + self.layout1() + self.layout_save_plots() +self.dataframe_layout(self.current_df_index) + self.layout_number_records()
+        divs=[html.Div(divs,id='tab1_container', style=tab_style)]
+        return divs
+
+    def layout_tab2(self,tab_style):
+        divs=[]
+        divs=self.layout_set_data_types()
+        divs=[html.Div(divs,id='tab2_container',style=tab_style)]
         return divs
 
 
-    def layout_filepath(self,df_index):
+    def layout_filepath(self):
         disp='inline-block'
         divs=[]
         divs.append(
@@ -1277,7 +1374,7 @@ class Dashboard:
         )
         return divs
 
-    def layout_filepath2(self,df_index):
+    def layout_filepath2(self):
         disp='inline-block'
         divs=[]
         divs.append(
@@ -1339,6 +1436,10 @@ class Dashboard:
 
     def hidden_callback_collectors(self):
         divs=[]
+        divs.append(html.Div(id="hidden-div1", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Div(id="hidden-div2", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Div(id="hidden-div3", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-input_dropdown_vals", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-reset_collector1", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-reset_collector2", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-page_refresh", style={"display": "none",'width':'100%','border':'2px solid black'}))
@@ -1351,26 +1452,13 @@ class Dashboard:
         divs.append(html.Button(id="hidden-dropdown_options_dfindex2", style={"display": "none",'width':'100%','border':'2px solid black'}))
         return divs
 
-    
-    def layout(self,df_index):
+    def plot_top(self):
         divs=[]
-        divs.append(html.Div(id="hidden-div1", style={"display": "none",'width':'100%','border':'2px solid black'}))
-        divs.append(html.Div(id="hidden-div2", style={"display": "none",'width':'100%','border':'2px solid black'}))
-        divs.append(html.Div(id="hidden-div3", style={"display": "none",'width':'100%','border':'2px solid black'}))
-        divs.append(html.Button(id="hidden-input_dropdown_vals", style={"display": "none",'width':'100%','border':'2px solid black'}))
-
-
         if self.ControlMode:
             disp='none'
             disp='inline-block'
         else:
             disp='inline-block'
-
-        if self.ControlMode:
-            disp1="block"
-        else:
-            disp1='none'
-    
 
         divs.append(
             html.Div(
@@ -1400,9 +1488,21 @@ class Dashboard:
                 style=dict(display='block',width='100%',height="35px")
             )
         )
+        return divs
 
-        divs.append(self.layout_tab(disp1,df_index))
-        
+    def layout_save_plots(self):
+
+        if self.ControlMode:
+            disp='none'
+            disp='inline-block'
+        else:
+            disp='inline-block'
+
+        if self.ControlMode:
+            disp1="block"
+        else:
+            disp1='none'
+    
         
         save_layout=[ 
             html.Div(
@@ -1423,21 +1523,39 @@ class Dashboard:
                 ]
                 + [html.Div(
                  [
-                     dcc.Textarea( id='textarea-filter', wrap="off", value='', style=dict(width='85%' )),
+                     dcc.Textarea( id='textarea-filter', wrap="off", value='', style=dict(width='40%',display='inline-block' )),
+                     html.Div(style=dict(width='3%',display='inline-block')),
+                     dcc.Textarea( id='textarea-previous_ops', wrap="off", value='', style=dict(width='40%',display='inline-block' )),
                 ]
                 ,style=dict(display=disp,width='98%' )
                 )]
                 , style=dict(display=disp1,width='100%'),
             )
         ]
-        divs = self.hidden_callback_collectors() +  self.layout_filepath(df_index) + self.layout_filepath2(df_index) +   divs + self.layout1() + save_layout   +self.dataframe_layout(df_index)
+        return save_layout
+    
+    def layout_number_records(self):
+        divs=[]
         divs.append(html.H2(" Number of Records :  "))
         divs.append(html.H3(" - ",id="lbl_records"))
+        return divs
+
+    def layout(self):
+        divs=[]
+
+        if self.ControlMode:
+            disp1="block"
+        else:
+            disp1='none'
+    
+
+        divs.append(self.layout_tab(disp1))
+        divs = self.hidden_callback_collectors() +  self.layout_filepath() + self.layout_filepath2() +   divs  
         ret=html.Div(divs,
                         style={"overflowX": "auto","overflowY": "auto"})
         return ret
 
-    def filter_layout(self,df_index):
+    def filter_layout(self):
         return [
             html.Div(id='container_col_select',
                     children=dcc.Dropdown(id='col_select',
@@ -1601,22 +1719,18 @@ class Dashboard:
         if (n_clicks is not None) and (GraphName is not None):
             self.GraphParams['Name']=GraphName
             self.set_Graphid()
-            graphlist={}
-            if os.path.exists(self.DataFile[df_index]['SavedGraphsFile']):
-                with open(self.DataFile[df_index]['SavedGraphsFile']) as json_file:
-                    graphlist=json.load(json_file)  
+            graphlist = self.loadMetadata(df_index,"SavedGraphs")
+            if graphlist is None:
+                graphlist={}
             graphlist[GraphName]=self.GraphParams
-            with open(self.DataFile[df_index]['SavedGraphsFile'], "w") as outfile:
-                json.dump(graphlist,outfile)
+            self.updateMetadata("SavedGraphs",graphlist,df_index)
             self.save_history(df_index)
         return retval
 
     def save_history(self,df_index):
         retval = ""
         graphlist=None
-        if self.DataFile[df_index] is not None and  os.path.exists(self.DataFile[df_index]['HistoricalGraphsFile']):
-            with open(self.DataFile[df_index]['HistoricalGraphsFile']) as json_file:
-                graphlist=json.load(json_file)  
+        graphlist = self.loadMetadata(df_index,"HistoricalGraphs")
         if graphlist is None:
             graphlist={}
         graphName=len(graphlist)
@@ -1645,16 +1759,15 @@ class Dashboard:
             graphlist = {k: graphlist[k] for k in list(graphlist)[:100]}
 
         if self.DataFile[df_index] is not None :
-            with open(self.DataFile[df_index]['HistoricalGraphsFile'], "w") as outfile:
-                json.dump(graphlist,outfile)
+            self.updateMetadata("HistoricalGraphs",graphlist,df_index)
         return retval
 
 
 
     def read_lastGraphFile(self,idx):
-        DebugMsg("Reading " + self.DataFile[idx]['LastGraphFile'])
-        with open(self.DataFile[idx]['LastGraphFile']) as json_file:
-            self.GraphParams = json.load(json_file)
+        tmp = self.loadMetadata(idx,"LastGraph")
+        if tmp is not None:
+            self.GraphParams = tmp
             self.update_aggregate()
 
 
@@ -1714,6 +1827,7 @@ class Dashboard:
         for txtbox in self.GraphParamsOrder2:
             Outputs.append(Output("input_{}".format(txtbox), "options"))
         Outputs.append(Output("input_{}".format("Scatter_Labels"), "options"))
+        Outputs.append(Output("input_cols_dytpe", "options"))
         return Outputs
 
     def get_Inputs2(self):
@@ -1728,6 +1842,7 @@ class Dashboard:
         for txtbox in self.GraphParamsOrder2:
             retval.append(self.get_dropdown_values(txtbox,self.filtered_df[self.default_df_index]))
         retval.append(self.get_dropdown_values("Scatter_Labels",  self.filtered_df[self.default_df_index]))
+        retval.append(self.get_dropdown_values("",  self.filtered_df[self.default_df_index]))
         return retval
 
     def get_OutputsReset(self):
@@ -1800,6 +1915,19 @@ class Dashboard:
         Inputs.append(State("input_replaceWithNan", "value"))
         return Inputs
 
+
+    def get_Inputs_update_dtype(self):
+        Inputs = list()
+        Inputs.append(Input("btn_apply_dtype", "n_clicks"))
+        Inputs.append(Input("input_cols_dytpe", "value"))
+        Inputs.append(State("input_cols_dytpe_val", "value"))
+        return Inputs
+
+    def get_Outputs_update_dtype(self):
+        Outputs = list()
+        Outputs.append(Output("lbl_current_dype", "children"))
+        return Outputs
+
     def get_Inputschk_isXlsx(self):
         Inputs = list()
         Inputs.append(Input("chk_isXlsx", "value"))
@@ -1835,14 +1963,13 @@ class Dashboard:
     def callbackLoadFile(self,filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index,refreshDashboard):
         if filename is not None:
             filename=os.path.abspath(filename)
-        DebugMsg2("Loading Done filename", filename)
-        if (self.DataFile[df_index] is None) or ( filename is None) or  (filename != self.DataFile[df_index]['Path']) :
-            DebugMsg2("isxlsx=",isxlsx)
+        else:
             if df_index != self.default_df_index and self.DataFile[self.default_df_index] is None:
                 raise ValueError("Load the first file first")
-            else:
-                DebugMsg2("reset dfindex=",df_index)
-                self.setDataFile(filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index)
+        DebugMsg2("Loading Done filename", filename)
+        if (self.DataFile[df_index] is None) or ( filename is None) or  (filename != self.DataFile[df_index]['Path']) :
+            DebugMsg2("reset dfindex=",df_index)
+            self.setDataFile(filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index)
 
             if refreshDashboard:
                 self.createDashboard(df_index,self.DashboardMode)
@@ -1919,8 +2046,16 @@ class Dashboard:
         return Inputs
 
 
+    def get_Inputs_previousOps(self):
+        Inputs = list()
+        Inputs.append(Input('textarea-previous_ops', 'n_blur')),
+        Inputs.append(State('textarea-previous_ops', 'value')),
+        return Inputs
 
-
+    def get_Outputs_previousOps(self):
+        Outputs = list()
+        Outputs.append(Output('textarea-previous_ops', 'n_clicks')),
+        return Outputs
 
     def get_Outputs(self):
         Outputs = list()
@@ -1936,6 +2071,7 @@ class Dashboard:
         Outputs.append(Output("table-paging-with-graph", "columns"))
         Outputs.append(Output("lbl_records", "children"))
         Outputs.append(Output('textarea-filter', 'value'))
+        Outputs.append(Output('textarea-previous_ops', 'value'))
         for txtbox in self.GraphParamsOrder:
             Outputs.append(Output("input_{}".format(txtbox), "value"))
         Outputs.append(Output("input_{}".format("Scatter_Labels"), "value"))
@@ -1964,6 +2100,7 @@ class Dashboard:
         Inputs.append(Input("select_data_df_index", "value"))
         Inputs.append(State("select_plot_df_index", "value"))
         Inputs.append(State('textarea-filter', 'value'))
+        Inputs.append(State('textarea-previous_ops', 'value'))
         for txtbox in self.GraphParamsOrder:
             Inputs.append(State("input_{}".format(txtbox), "value"))
         Inputs.append(State("input_{}".format("Scatter_Labels"), "value"))
@@ -1997,23 +2134,17 @@ class Dashboard:
         DebugMsg("PrimaryLegends",Primary_Legends)
         retval = []
 
-        GraphChanged=False
-
         if self.reset :
             pass
         elif showGraph is not None:
             self.GraphParams=self.SavedGraphList[showGraph].copy()
             self.update_aggregate()
             refresh_df=True
-            FirstLoad=True
-            GraphChanged=True
         elif showHistoricalGraph is not None:
             self.GraphParams=self.HistoricalGraphList[showHistoricalGraph].copy()
             self.update_aggregate()
             refresh_df=True
-            FirstLoad=True
-            GraphChanged=True
-        elif FirstLoad and self.DataFile[self.default_df_index] is not None and  os.path.exists(self.DataFile[self.default_df_index]['LastGraphFile']):
+        elif FirstLoad and self.DataFile[self.default_df_index] is not None:
             self.read_lastGraphFile(self.default_df_index)
             DebugMsg2("Read First Load Graphparams=" ,self.GraphParams)
         elif refresh_df and Primary_Yaxis is not None:
@@ -2048,7 +2179,7 @@ class Dashboard:
             DebugMsg("Test0 df_index",df_index)
             if self.df[df_index] is None:
                 continue
-            if FirstLoad:
+            if FirstLoad :
                 DebugMsg("FirstLoad df shape" + "df_index=" + df_index ,self.df[df_index].shape)
                 if len(self.GraphParams['PreviousOperations'])> 0:
                     for filter in self.GraphParams['PreviousOperations']:
@@ -2065,7 +2196,7 @@ class Dashboard:
                 DebugMsg("self.df[" + df_index + "]", self.df[df_index])
                 DebugMsg("self.filtered_df[" + df_index + "]", self.filtered_df[df_index])
                 org_cols=set(self.filtered_df[df_index].columns)
-                self.filtered_df[df_index]=self.filter_sort_df(self.filtered_df[df_index],self.GraphParams["Filters"],df_index)
+                self.filtered_df[df_index],self.GraphParams["Filters"]=self.filter_sort_df(self.filtered_df[df_index],self.GraphParams["Filters"],df_index)
                 new_cols=list(set(self.filtered_df[df_index].columns)- org_cols)
                 self.plot_df[df_index]=self.filtered_df[df_index]
                 DebugMsg("FilterUpdate plot_df=" + str(self.filtered_df[df_index].head(2)))
@@ -2078,7 +2209,7 @@ class Dashboard:
                 DebugMsg2("First Load self.df[df_index] " + df_index ,self.df[df_index])
                 self.plot_df[df_index] = self.extract_data(self.filtered_df[df_index], new_cols)
                 if self.aggregate:
-                    self.plot_df[df_index]=self.filter_sort_df(self.plot_df[df_index],self.GraphParams["FilterAgregatedData"],df_index)
+                    self.plot_df[df_index],extra=self.filter_sort_df(self.plot_df[df_index],self.GraphParams["FilterAgregatedData"],df_index)
             self.update_graph(plot_df_indexes)
 
             #pprint(self.GraphParams)
@@ -2098,10 +2229,10 @@ class Dashboard:
                     self.GlobalParams['Datatable_columns'].append(col)
 
         DebugMsg2("self.reset " , self.reset)
-        if ((not FirstLoad) or GraphChanged) and (not self.reset) and MC.DataFile[MC.default_df_index] is not None:
-            with open(MC.DataFile[MC.default_df_index]['LastGraphFile'], "w") as outfile:
-                MC.set_Graphid()
-                json.dump(MC.GraphParams, outfile)
+        if (not FirstLoad) and (not self.reset) and MC.DataFile[MC.default_df_index] is not None:
+            MC.set_Graphid()
+            MC.updateMetadata("LastGraph",MC.GraphParams,MC.default_df_index)
+                
         self.reset=False
 
         for group in self.groups:
@@ -2186,6 +2317,7 @@ if __name__ == "__main__":
         data_df_index,
         plot_df_indexes,
         filter, 
+        previous_ops,
         Xaxis,
         GraphType,
         Primary_Yaxis,
@@ -2304,6 +2436,8 @@ if __name__ == "__main__":
         else:
             retval.append(MC.GraphParams['Filters'])
 
+        retval.append("\n".join(MC.GraphParams['PreviousOperations']))
+
         retval=retval+ t5 ## Input boxes values
 
         if MC.GlobalParams['columns_updated']:
@@ -2348,7 +2482,7 @@ if __name__ == "__main__":
 
     @app.callback(MC.get_Outputs_tab(), MC.get_Inputs_tab(),prevent_initial_call=True)
     def updateTab(tab):
-        return MC.render_tab_content(tab)
+        return MC.get_tab_containers_styles(tab)
 
 
     @app.callback(MC.get_OutputsLoadRecentFile(), MC.get_InputsLoadRecentFile(),prevent_initial_call=True)
@@ -2451,27 +2585,38 @@ if __name__ == "__main__":
     def updateDropDownOptions(clicks1,clicks2):
         return [MC.get_dropdown_values("df_index"),MC.get_dropdown_values("plot_index")]
 
-    @app.callback(MC.get_OutputsPageRefresh(),MC.get_InputsPageRefresh())
+    @app.callback(MC.get_OutputsPageRefresh(),MC.get_InputsPageRefresh(),prevent_initial_call=False)
     def page_refresh(clicks):
         MC.loadLastLoadedFiles()
         #return [1,dash.no_update] 
         return [1,1] 
 
-    @app.callback(MC.get_Outputschk_isXlsx(),MC.get_Inputschk_isXlsx())
+    @app.callback(MC.get_Outputschk_isXlsx(),MC.get_Inputschk_isXlsx(),prevent_initial_call=True)
     def Xlsx(isxlsx):
         if 'True' in isxlsx :
             return ["SheetName"]
         else :
             return ["Separator"]
     
-    @app.callback(MC.get_Outputschk_isXlsx2(),MC.get_Inputschk_isXlsx2())
+    @app.callback(MC.get_Outputschk_isXlsx2(),MC.get_Inputschk_isXlsx2(),prevent_initial_call=True)
     def Xlsx2(isxlsx):
         if 'True' in isxlsx :
             return ["SheetName"]
         else :
             return ["Separator"]
 
+    @app.callback(MC.get_Outputs_update_dtype(),MC.get_Inputs_update_dtype(),prevent_initial_call=True,suppress_callback_exceptions=True)
+    def update_dtypes(nclicks,cols,new_dtype):
+        trig_id =  dash.callback_context.triggered[0]['prop_id'].split('.')
+        if trig_id[0] =="btn_apply_dtype" :
+            MC.update_dtype(cols,new_dtype)
+        return [MC.get_dypes(cols)]
+            
 
+    @app.callback(MC.get_Outputs_previousOps(),MC.get_Inputs_previousOps(),prevent_initial_call=True,suppress_callback_exceptions=True)
+    def update_previousOps(nblur,value):
+        MC.GraphParams['PreviousOperations']=value.split("\n")
+        return [0]
     #@app.callback(Output('table-paging-with-graph', 'data'),
 #    @app.callback(Output('textarea-filter', 'value'),
 #                [Input('col_select', 'value'),
