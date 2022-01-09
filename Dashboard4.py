@@ -1,4 +1,5 @@
-#! /usr/bin/arch -x86_64 /usr/bin/env python
+#! /usr/bin/env python
+##! /usr/bin/arch -x86_64 /usr/bin/env python
 
 from logging import error
 import dash
@@ -40,25 +41,32 @@ print("############################################")
 print("############################################")
 debug=False
 
-def DebugMsg(msg1,msg2=None,printmsg=True):
+def DebugMsg(msg1,msg2=None,printmsg=False):
     if debug and printmsg:
         print(msg1,end=" " )
         if msg2 is not None:
             print(msg2)
         print("")
 
-def DebugMsg2(msg1,msg2=None,printmsg=True):
+def DebugMsg2(msg1,msg2=None,printmsg=False):
     DebugMsg(msg1,msg2,printmsg)
 
 def DebugMsg3(msg1,msg2=None,printmsg=True):
     DebugMsg(msg1,msg2,printmsg)
 
-def get_xlsx_sheet_names(xlsx_file):
+def get_xlsx_sheet_names(xlsx_file,return_As_dropdown_options=False):
     with ZipFile(xlsx_file) as zipped_file:
         summary = zipped_file.open(r'xl/workbook.xml').read()
     soup = BeautifulSoup(summary, "html.parser")
     sheets = [sheet.get("name") for sheet in soup.find_all("sheet")]
-    return sheets
+    if return_As_dropdown_options:
+        doptions=[]
+        for sheet in sheets:
+            doptions.append({"label": sheet, "value": sheet})
+        return doptions
+    else:
+        return sheets
+
 
 
 # assume you have a "long-form" data frame
@@ -116,11 +124,12 @@ class Dashboard:
         self.GlobalParams['columns_updated']=False
         self.GlobalParams['PreAggregatedData']=True
 
+        tmp=None
         if self.DataFile[df_index] is not None :
             tmp=self.loadMetadata(df_index,"LastGraph")
-            if tmp is not None:
-                self.GraphParams = tmp
-                self.update_aggregate()
+        if tmp is not None:
+            self.GraphParams = tmp
+            self.update_aggregate()
         else:
             self.initialize_GraphParams()
 
@@ -237,9 +246,11 @@ class Dashboard:
         return df1
 
     def get_dypes(self,cols):
-        update_done=False
-        dtypes=self.df[self.default_df_index][cols].dtypes.to_frame('dtypes').reset_index().set_index('index')['dtypes'].astype(str).to_dict()
-        return json.dumps(dtypes)
+        if cols is None:
+            dtypes=self.df[self.default_df_index].dtypes.to_frame('dtypes')['dtypes'].astype(str).to_dict()
+        else:
+            dtypes=self.df[self.default_df_index][cols].dtypes.to_frame('dtypes')['dtypes'].astype(str).to_dict()
+        return dtypes
 
 
     def update_dtype(self,cols,dtype):
@@ -398,6 +409,14 @@ class Dashboard:
             'datetime' : 'datetime64[ns]', 
             'boolean': bool
         }
+        self.separatorMap={
+             "<tab>": "\t",
+             "<space>" : " ",
+             ",<comma>": ",",
+             ";<semi-colon>": ";",
+             ":<colon>": ":",
+             "#<hash>": "#",
+        }
 
 
         self.GraphParamsOrder = self.GraphParamsOrder2 + [ "Secondary_Legends"]
@@ -410,14 +429,16 @@ class Dashboard:
             print("Reading file " + str(FileInfo['Path'])  )
             FileInfo['LastModified'] = mtime
             if FileInfo['isXlsx']:
+                if FileInfo['Sheet']==None:
+                    raise ValueError("SheetName is not defined")
                 df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'],dtype=dtypes)
             else:
-                #df=pd.read_csv(FileInfo['Path'], sep="\t")
                 DebugMsg3("Reading File123")
                 sep= FileInfo['Sheet']
                 if FileInfo['Sheet']==None:
-                    sep="\t"
-                df=pd.read_csv(FileInfo['Path'], sep=sep,dtype=dtypes)
+                    raise ValueError("Separator is not defined")
+                    
+                df=pd.read_csv(FileInfo['Path'], sep=self.separatorMap[sep],dtype=dtypes)
 
             replace_dict=dict()
             if FileInfo['ReplaceWithNan'] is not None:
@@ -1062,7 +1083,7 @@ class Dashboard:
 
 
     def update_table(self,page_current, page_size,df_index):
-        if df_index == 'None':
+        if df_index == 'None' or df_index is None:
             df=pd.DataFrame()
         elif self.GlobalParams['PreAggregatedData']:
             df=self.filtered_df[df_index]
@@ -1128,6 +1149,12 @@ class Dashboard:
         elif type == "AvailableDataTypes":
             for idx in self.AvailableDataTypes:
                 list_of_dic.append({"label": idx, "value": idx})
+        elif type == "AvailableSeparators":
+            for idx in self.separatorMap:
+                list_of_dic.append({"label": idx, "value": idx})
+        elif type == "AvailableSheetNames":
+            list_of_dic.append({"label": "data", "value": "data"})
+            list_of_dic.append({"label": "data2", "value": "data2"})
         else :
             for col in df.columns:
                 list_of_dic.append({"label": col, "value": col})
@@ -1143,13 +1170,13 @@ class Dashboard:
                 className='custom-tabs-container',
                 children=[
                     dcc.Tab(
-                        label='Basic',
+                        label='Plot',
                         value='tab-basic',
                         className='custom-tab',
                         selected_className='custom-tab--selected',
                     ),
                     dcc.Tab(
-                        label='Advanced',
+                        label='DataType',
                         value='tab-2',
                         className='custom-tab',
                         selected_className='custom-tab--selected'
@@ -1249,7 +1276,31 @@ class Dashboard:
         new_divs = html.Div(new_divs, style=dict(display=disp1,width='100%'))
         return new_divs
 
-    def layout_set_data_types(self):
+
+    def get_dtypes_display(self):
+        display1=[html.H3('Show Data Types')]
+        dtypes=self.get_dypes(None)
+        if len(dtypes)>0:
+            display1.append(dcc.Markdown("**"+ "Column" + "** : " +   "Datatype"))
+            display1.append(dcc.Markdown("**"+ "######" + "** : " +   "########"))
+        for col in dtypes:
+            display1.append(dcc.Markdown("**"+ col + "** : " +   dtypes[col]))
+        return display1
+
+    def layout_display_data_types(self):
+
+        disp='inline-block'
+        divs=[]
+        divs.append(
+            html.Div(
+            self.get_dtypes_display(),id='display_datatypes',
+             style=dict(display=disp,width='100%',height='100%')
+             ),
+        )
+        DebugMsg3("divs ", divs)
+        return (divs)
+
+    def layout_update_data_types(self):
         disp='inline-block'
         divs=[]
         divs.append(
@@ -1292,10 +1343,9 @@ class Dashboard:
             html.Div([ html.H1()],style=dict(display=disp,width='2%')),
             html.Button("Apply", id="btn_apply_dtype", n_clicks=0,style=dict(verticalAlign='top',display=disp,width='5%',height='100%')),
 
-            ],style={'display':'block','width':'100%','height' : '35px'} 
+            ],style={'display':'block','width':'100%','height' : '100%'} 
             )
         )
-        divs.append(html.Div([html.P([ html.Br()] * 20 ,id='dd-output-container')], style=dict(display=disp,width='1%')))
         return divs
     
     def layout_tab1(self,tab_style):
@@ -1309,7 +1359,9 @@ class Dashboard:
 
     def layout_tab2(self,tab_style):
         divs=[]
-        divs=self.layout_set_data_types()
+        divs.append(html.Div(self.layout_update_data_types()  ))
+        divs.append(html.Div(self.layout_display_data_types() ))
+        divs.append(html.Div([html.P([ html.Br()] * 5 ,id='dd-output-container')]))
         divs=[html.Div(divs,id='tab2_container',style=tab_style)]
         return divs
 
@@ -1331,16 +1383,16 @@ class Dashboard:
                         style=dict(display=disp,width='30%',height='100%',verticalAlign='top')
                     ),
                     dcc.Checklist(id='chk_isXlsx', options=[ {'label': 'xlsx', 'value': 'True'} ], value=[], style=dict(display='inline-block',width='3%',verticalAlign='top')) , 
-                    html.Div([
-                    dcc.Input(
-                        id="input_loadFileSheetName",
-                        type='text',
-                        placeholder='SheetName',
-                        style=dict(height='80%' ,width='90%')
-                        )],
-                        style=dict(display=disp,width='10%',height='100%',verticalAlign='top')
 
 
+                    html.Div(
+                    children=dcc.Dropdown(id='input_loadFileSheetName',
+                                        value="<tab>",
+                                        multi=False,
+                                        clearable=False,
+                                        options=self.get_dropdown_values("AvailableSeparators")
+                                    ),
+                    style=dict(display=disp,width='9%',height='100%',verticalAlign='top')
                     ),
                     html.Div([
                     dcc.Input(
@@ -1391,17 +1443,15 @@ class Dashboard:
                         style=dict(display=disp,width='30%',height='100%',verticalAlign='top')
                     ),
                     dcc.Checklist(id='chk_isXlsx2', options=[ {'label': 'xlsx', 'value': 'True'} ], value=[], style=dict(display='inline-block',width='3%',verticalAlign='top')) , 
-                    html.Div([
-                    dcc.Input(
-                        id="input_loadFileSheetName2",
-                        type='text',
-                        placeholder='SheetName',
-                        style=dict(height='80%' ,width='90%')
-                        )],
-                        style=dict(display=disp,width='10%',height='100%',verticalAlign='top')
-
-
+                    html.Div(
+                    children=dcc.Dropdown(id='input_loadFileSheetName2',
+                                        value="<tab>",
+                                        multi=False,
+                                        clearable=False,
+                                        options=self.get_dropdown_values("AvailableSeparators")),
+                    style=dict(display=disp,width='9%',height='100%',verticalAlign='top')
                     ),
+                    
                     html.Div([
                     dcc.Input(
                         id="input_skiprows2",
@@ -1510,12 +1560,18 @@ class Dashboard:
                     dbc.Button("Save", id="btn_save",style=dict(display='inline-table',width='10%' )),
                     dcc.Input(id="input_save",type="text",placeholder="GraphName",style=dict(display='inline-table',width='25%' )),
                     dbc.Button("Clear Filters", id="btn_clearFilters",style=dict(display='inline-table',width='10%' )),
-                    dcc.Checklist(id='chk_PreAggregated', options=[ {'label': 'PreAggregatedData', 'value': 'Yes'} ], value=['Yes'], style=dict(display='inline-table',width='15%'))  ,
+                    dcc.Checklist(
+                        id='chk_PreAggregated',
+                         options=[ {'label': 'PreAggregatedData', 'value': 'Yes'} ],
+                        value=['Yes'],
+                         style=dict(display='inline-table',width='15%')
+                         )  ,
                     html.Div([
                     dcc.Dropdown(
                         id="select_data_df_index",
                         options=self.get_dropdown_values("df_index"),
                         value=self.default_df_index,
+                        clearable=False,
                         multi=False)],
                         style=dict(display=disp,width='20%',height='100%',verticalAlign='center')
                     )
@@ -1557,7 +1613,7 @@ class Dashboard:
 
     def filter_layout(self):
         return [
-            html.Div(id='container_col_select',
+            html.Div(
                     children=dcc.Dropdown(id='col_select',
                                         options=self.get_dropdown_values("")),
                     style={'display': 'inline-block', 'width': '30%', 'margin-left': '7%'}),
@@ -1931,21 +1987,25 @@ class Dashboard:
     def get_Inputschk_isXlsx(self):
         Inputs = list()
         Inputs.append(Input("chk_isXlsx", "value"))
+        Inputs.append(State("input_loadFileName", "value"))
         return Inputs
 
     def get_Outputschk_isXlsx(self):
         Outputs = list()
         Outputs.append(Output("input_loadFileSheetName", "placeholder"))
+        Outputs.append(Output("input_loadFileSheetName", "options"))
         return Outputs
 
     def get_Inputschk_isXlsx2(self):
         Inputs = list()
         Inputs.append(Input("chk_isXlsx2", "value"))
+        Inputs.append(State("input_loadFileName2", "value"))
         return Inputs
 
     def get_Outputschk_isXlsx2(self):
         Outputs = list()
         Outputs.append(Output("input_loadFileSheetName2", "placeholder"))
+        Outputs.append(Output("input_loadFileSheetName2", "options"))
         return Outputs
 
     def get_OutputsLoadFileValue(self):
@@ -1963,7 +2023,6 @@ class Dashboard:
     def callbackLoadFile(self,filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index,refreshDashboard):
         if filename is not None:
             filename=os.path.abspath(filename)
-        else:
             if df_index != self.default_df_index and self.DataFile[self.default_df_index] is None:
                 raise ValueError("Load the first file first")
         DebugMsg2("Loading Done filename", filename)
@@ -2055,6 +2114,17 @@ class Dashboard:
     def get_Outputs_previousOps(self):
         Outputs = list()
         Outputs.append(Output('textarea-previous_ops', 'n_clicks')),
+        return Outputs
+
+
+    def get_Inputs_display_dtypes(self):
+        Inputs = list()
+        Inputs.append(Input('display_datatypes', 'n_clicks')),
+        return Inputs
+
+    def get_Outputs_display_dtypes(self):
+        Outputs = list()
+        Outputs.append(Output('display_datatypes', 'children')),
         return Outputs
 
     def get_Outputs(self):
@@ -2165,7 +2235,6 @@ class Dashboard:
         
         #print("SecondaryLegends")
         #print(self.GraphParams["Secondary_Legends"])
-        DebugMsg2("Test0 Aggregate_Func",self.GraphParams['Aggregate_Func'])
 
         for col in ["Primary_Legends","Scatter_Labels","Secondary_Legends"]:
             if self.GraphParams[col] is None:
@@ -2436,7 +2505,7 @@ if __name__ == "__main__":
         else:
             retval.append(MC.GraphParams['Filters'])
 
-        retval.append("\n".join(MC.GraphParams['PreviousOperations']))
+        retval.append("\n".join(MC.GraphParams['PreviousOperations']).strip())
 
         retval=retval+ t5 ## Input boxes values
 
@@ -2492,16 +2561,15 @@ if __name__ == "__main__":
         isxlsx1=False
         if input_value is None:
             MC.callbackLoadFile(input_value,isxlsx1,None,None,None,df_index,True)
-            return [dash.no_update,1,1,"",[],"","",""]
+            return [dash.no_update,1,1,"",[],"<tab>","",""]
         temp=input_value.split("#")
         value=temp[0]
         isxlsx=temp[1]
-        sheetname=None
-        if isxlsx == "True":
-            isxlsx1=True
-            sheetname=temp[2]
+        sheetname=temp[2]
         skiprows=temp[3]
         replaceWithNaN=temp[4]
+        if isxlsx == "True":
+            isxlsx1=True
         if value is not None:
             MC.callbackLoadFile(value,isxlsx1,sheetname,skiprows,replaceWithNaN,df_index,True)
             return [1,dash.no_update,1,value,[isxlsx],sheetname,skiprows,replaceWithNaN]
@@ -2533,17 +2601,16 @@ if __name__ == "__main__":
         isxlsx1=False
         if input_value is None:
             MC.callbackLoadFile(input_value,isxlsx1,None,None,None,df_index,False)
-            return [dash.no_update,1,"",[],"","",""]
+            return [dash.no_update,1,"",[],"<tab>","",""]
 
         temp=input_value.split("#")
         value=temp[0]
         isxlsx=temp[1]
-        sheetname=None
-        if isxlsx == "True":
-            isxlsx1=True
-            sheetname=temp[2]
+        sheetname=temp[2]
         skiprows=temp[3]
         replaceWithNaN=temp[4]
+        if isxlsx == "True":
+            isxlsx1=True
         if value is not None:
             MC.callbackLoadFile(value,isxlsx1,sheetname,skiprows,replaceWithNaN,df_index,False)
             return [1,1,value,[isxlsx],sheetname,skiprows,replaceWithNaN]
@@ -2592,31 +2659,36 @@ if __name__ == "__main__":
         return [1,1] 
 
     @app.callback(MC.get_Outputschk_isXlsx(),MC.get_Inputschk_isXlsx(),prevent_initial_call=True)
-    def Xlsx(isxlsx):
+    def Xlsx(isxlsx,filepath):
         if 'True' in isxlsx :
-            return ["SheetName"]
+            return ["SheetName",get_xlsx_sheet_names(filepath,return_As_dropdown_options=True)]
         else :
-            return ["Separator"]
+            return ["Separator",MC.get_dropdown_values("AvailableSeparators")]
     
-    @app.callback(MC.get_Outputschk_isXlsx2(),MC.get_Inputschk_isXlsx2(),prevent_initial_call=True)
-    def Xlsx2(isxlsx):
+    @app.callback(MC.get_Outputschk_isXlsx2(),MC.get_Inputschk_isXlsx2(),prevent_initial_call=False)
+    def Xlsx2(isxlsx,filepath):
         if 'True' in isxlsx :
-            return ["SheetName"]
+            return ["SheetName",get_xlsx_sheet_names(filepath,return_As_dropdown_options=True)]
         else :
-            return ["Separator"]
+            return ["Separator",MC.get_dropdown_values("AvailableSeparators")]
 
-    @app.callback(MC.get_Outputs_update_dtype(),MC.get_Inputs_update_dtype(),prevent_initial_call=True,suppress_callback_exceptions=True)
+    @app.callback(MC.get_Outputs_update_dtype(),MC.get_Inputs_update_dtype(),prevent_initial_call=True)
     def update_dtypes(nclicks,cols,new_dtype):
         trig_id =  dash.callback_context.triggered[0]['prop_id'].split('.')
         if trig_id[0] =="btn_apply_dtype" :
             MC.update_dtype(cols,new_dtype)
-        return [MC.get_dypes(cols)]
+        return [json.dumps(MC.get_dypes(cols))]
             
 
-    @app.callback(MC.get_Outputs_previousOps(),MC.get_Inputs_previousOps(),prevent_initial_call=True,suppress_callback_exceptions=True)
+    @app.callback(MC.get_Outputs_previousOps(),MC.get_Inputs_previousOps(),prevent_initial_call=True)
     def update_previousOps(nblur,value):
         MC.GraphParams['PreviousOperations']=value.split("\n")
         return [0]
+
+    @app.callback(MC.get_Outputs_display_dtypes(),MC.get_Inputs_display_dtypes(),prevent_initial_call=True)
+    def update_dtypes(nclicks):
+        return [MC.get_dtypes_display()]
+    #@app.callback(Output('table-paging-with-graph', 'data'),
     #@app.callback(Output('table-paging-with-graph', 'data'),
 #    @app.callback(Output('textarea-filter', 'value'),
 #                [Input('col_select', 'value'),
