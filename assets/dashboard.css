@@ -1,0 +1,5 @@
+
+/*
+To enable scrolling in long drop down menu items
+*/
+.VirtualizedSelectOption { white-space: nowrap; overflow: scroll; text-overflow: ellipsis; }

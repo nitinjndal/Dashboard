@@ -82,7 +82,8 @@ class Dashboard:
         df_index=self.default_df_index
        # self.setDataFile(datafile,isxlsx,sheetname,skiprows,replace_with_nan,df_index)
         self.createDashboard(df_index,self.DashboardMode)
-        self.app = dash.Dash()
+        self.app = dash.Dash(external_scripts=["./dashboard.css"])
+#        self.app = dash.Dash()
         self.app.layout = html.Div(self.layout())
 
     def reset_df_index(self,idx):
@@ -253,12 +254,15 @@ class Dashboard:
         return dtypes
 
 
-    def update_dtype(self,cols,dtype):
+    def update_dtype(self,cols,dtype,custom_datetime_fmt):
         update_done=False
         for col in cols:
             for idx in self.df_indexes:
                 if self.df[idx] is not None:
-                    self.df[idx][col]=self.df[idx][col].astype(self.AvailableDataTypes[dtype])
+                    if dtype == 'datetime_custom_format':
+                        self.df[idx][col]=pd.to_datetime(self.df[idx][col],format=custom_datetime_fmt,errors='coerce')
+                    else:
+                        self.df[idx][col]=self.df[idx][col].astype(self.AvailableDataTypes[dtype])
                     update_done=True
         if update_done:
             dtypes=self.df[self.default_df_index].dtypes.to_frame('dtypes').reset_index().set_index('index')['dtypes'].astype(str).to_dict()
@@ -407,6 +411,7 @@ class Dashboard:
             'int' : int, 
             'float': float,
             'datetime' : 'datetime64[ns]', 
+            'datetime_custom_format' : 'datetime64[ns]', 
             'boolean': bool
         }
         self.separatorMap={
@@ -426,19 +431,23 @@ class Dashboard:
         dtypes=self.loadMetadata(self.default_df_index,'ColumnsDataTypes')
         mtime = os.path.getmtime(FileInfo['Path'])
         if mtime > FileInfo['LastModified']:
-            print("Reading file " + str(FileInfo['Path'])  )
+            print("Reading file " + str(FileInfo['Path']) + " skiprows=" + str(FileInfo['SkipRows'])  )
             FileInfo['LastModified'] = mtime
             if FileInfo['isXlsx']:
                 if FileInfo['Sheet']==None:
                     raise ValueError("SheetName is not defined")
                 df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'],dtype=dtypes)
+                df.columns = df.columns.astype(str)
+
+                DebugMsg3("DF head=", df.head())
             else:
                 DebugMsg3("Reading File123")
                 sep= FileInfo['Sheet']
                 if FileInfo['Sheet']==None:
                     raise ValueError("Separator is not defined")
                     
-                df=pd.read_csv(FileInfo['Path'], sep=self.separatorMap[sep],dtype=dtypes)
+                df=pd.read_csv(FileInfo['Path'], sep=self.separatorMap[sep],skiprows=FileInfo['SkipRows'],dtype=dtypes)
+                df.columns = df.columns.astype(str)
 
             replace_dict=dict()
             if FileInfo['ReplaceWithNan'] is not None:
@@ -1335,11 +1344,21 @@ class Dashboard:
                     options=self.get_dropdown_values("AvailableDataTypes"),
                     value='string',
                     multi=False,
-                    clearable=False
-                )], 
-                
-                style=dict(display=disp,width='20%',height='100%', verticalAlign='center')
+                    clearable=False,
+            )],   
+                style=dict(display=disp,width='13%',height='100%', verticalAlign='center')
             ),
+            html.Div([
+             dcc.Input(
+                        id="input_custom_datetime_format",
+                        type='text',
+                        placeholder='CustomDatetimeFormat',
+                        style=dict(width='100%',height='100%' )
+            )],
+                    id="input_custom_datetime_format_container",
+                style=dict(display='none',width='10%', verticalAlign='top')
+            ),   
+
             html.Div([ html.H1()],style=dict(display=disp,width='2%')),
             html.Button("Apply", id="btn_apply_dtype", n_clicks=0,style=dict(verticalAlign='top',display=disp,width='5%',height='100%')),
 
@@ -1417,7 +1436,9 @@ class Dashboard:
                         id="input_recentlyLoadedFiles",
                         options=self.get_dropdown_values("input_recentlyLoadedFiles"),
                         value=None,
-                        multi=False)],
+                        multi=False,
+                        optionHeight=120,
+                        )],
                         style=dict(display=disp,width='37%',height='100%',verticalAlign='center')
                     ),
                 ],
@@ -1475,8 +1496,13 @@ class Dashboard:
                         id="input_recentlyLoadedFiles2",
                         options=self.get_dropdown_values("input_recentlyLoadedFiles"),
                         value=None,
-                        multi=False)],
-                        style=dict(display=disp,width='37%',height='100%',verticalAlign='center')
+                        optionHeight=120,
+                        multi=False,
+                        )],
+                        style={'display' : disp,
+                                'width'  : '37%',
+                                'height' : '100%'
+                        }
                     ),
                 ],
                 style=dict(display='block',width='100%',height="35px")
@@ -1661,7 +1687,7 @@ class Dashboard:
         df=self.table_df
         style=[]
         for col in df.columns:
-            name_length = len(col)
+            name_length = len(str(col))
             pixel = 50 + round(name_length*5)
             pixel = str(pixel) + "px"
             style.append({'if': {'column_id': col}, 'minWidth': pixel})
@@ -1971,12 +1997,23 @@ class Dashboard:
         Inputs.append(State("input_replaceWithNan", "value"))
         return Inputs
 
+    def get_Inputs_custom_datetime(self):
+        Inputs = list()
+        Inputs.append(Input("input_cols_dytpe_val", "value"))
+        return Inputs
+
+    def get_Outputs_custom_datetime(self):
+        Outputs = list()
+        Outputs.append(Output("input_custom_datetime_format_container", "style"))
+        return Outputs
+
 
     def get_Inputs_update_dtype(self):
         Inputs = list()
         Inputs.append(Input("btn_apply_dtype", "n_clicks"))
         Inputs.append(Input("input_cols_dytpe", "value"))
         Inputs.append(State("input_cols_dytpe_val", "value"))
+        Inputs.append(State("input_custom_datetime_format", "value"))
         return Inputs
 
     def get_Outputs_update_dtype(self):
@@ -2020,13 +2057,29 @@ class Dashboard:
         return Inputs
 
 
+
+    def is_same_file(self,DataFile,filename,isxlsx,sheetname,skiprows,replaceWithNan):
+        if ( 
+            filename == DataFile['Path'] and
+            isxlsx == DataFile['isXlsx'] and
+            sheetname == DataFile['Sheet'] and
+            skiprows == DataFile['SkipRows'] and
+            replaceWithNan == DataFile['ReplaceWithNan'] 
+        ):
+            return True
+        else:
+            return False
+
+
+
     def callbackLoadFile(self,filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index,refreshDashboard):
+        skiprows=int(skiprows)
         if filename is not None:
             filename=os.path.abspath(filename)
             if df_index != self.default_df_index and self.DataFile[self.default_df_index] is None:
                 raise ValueError("Load the first file first")
         DebugMsg2("Loading Done filename", filename)
-        if (self.DataFile[df_index] is None) or ( filename is None) or  (filename != self.DataFile[df_index]['Path']) :
+        if (self.DataFile[df_index] is None) or ( filename is None) or  (not self.is_same_file(self.DataFile[df_index],filename,isxlsx,sheetname,skiprows,replaceWithNan)):
             DebugMsg2("reset dfindex=",df_index)
             self.setDataFile(filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index)
 
@@ -2294,7 +2347,7 @@ class Dashboard:
         if self.plot_df[org_idx] is not None:
             for col in self.plot_df[org_idx].columns:
                 #print(col)
-                if not col.startswith('#'):
+                if not str(col).startswith('#'):
                     self.GlobalParams['Datatable_columns'].append(col)
 
         DebugMsg2("self.reset " , self.reset)
@@ -2673,10 +2726,10 @@ if __name__ == "__main__":
             return ["Separator",MC.get_dropdown_values("AvailableSeparators")]
 
     @app.callback(MC.get_Outputs_update_dtype(),MC.get_Inputs_update_dtype(),prevent_initial_call=True)
-    def update_dtypes(nclicks,cols,new_dtype):
+    def update_dtypes(nclicks,cols,new_dtype,custom_datetime_fmt):
         trig_id =  dash.callback_context.triggered[0]['prop_id'].split('.')
         if trig_id[0] =="btn_apply_dtype" :
-            MC.update_dtype(cols,new_dtype)
+            MC.update_dtype(cols,new_dtype,custom_datetime_fmt)
         return [json.dumps(MC.get_dypes(cols))]
             
 
@@ -2688,6 +2741,14 @@ if __name__ == "__main__":
     @app.callback(MC.get_Outputs_display_dtypes(),MC.get_Inputs_display_dtypes(),prevent_initial_call=True)
     def update_dtypes(nclicks):
         return [MC.get_dtypes_display()]
+
+    @app.callback(MC.get_Outputs_custom_datetime(),MC.get_Inputs_custom_datetime(),prevent_initial_call=True)
+    def update_dtypes(dtype):
+        if dtype=="datetime_custom_format":
+            return [dict(display='inline-block',width='10%', verticalAlign='top')]
+        else:
+            return [dict(display='none',width='10%', verticalAlign='top')]
+        
     #@app.callback(Output('table-paging-with-graph', 'data'),
     #@app.callback(Output('table-paging-with-graph', 'data'),
 #    @app.callback(Output('textarea-filter', 'value'),
