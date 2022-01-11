@@ -41,17 +41,21 @@ print("############################################")
 print("############################################")
 debug=False
 
-def DebugMsg(msg1,msg2=None,printmsg=False):
+def DebugMsg(msg1,msg2=None,printmsg=True):
     if debug and printmsg:
+        print(dt.datetime.now().strftime("%c"),end=" " )
         print(msg1,end=" " )
         if msg2 is not None:
             print(msg2)
         print("")
 
-def DebugMsg2(msg1,msg2=None,printmsg=False):
+def DebugMsg2(msg1,msg2=None,printmsg=True):
     DebugMsg(msg1,msg2,printmsg)
 
 def DebugMsg3(msg1,msg2=None,printmsg=True):
+    DebugMsg(msg1,msg2,printmsg)
+
+def Info(msg1,msg2=None,printmsg=True):
     DebugMsg(msg1,msg2,printmsg)
 
 def get_xlsx_sheet_names(xlsx_file,return_As_dropdown_options=False):
@@ -136,22 +140,16 @@ class Dashboard:
 
         self.update_aggregate()
         self.groups = [[json.dumps(self.GraphParams)]]
-        DebugMsg2("Groups:",self.groups)
 
         self.DF_read_copy = dict()
 
         self.readFileInitDash(df_index)
         self.updateGraphList(df_index)
 
-        DebugMsg2("Groups3:",self.groups)
         self.filtered_df[df_index] = self.df[df_index].copy()
-        DebugMsg2("Groups4:",self.groups)
         self.plot_df[df_index]=self.filtered_df[df_index]
-        DebugMsg2("Groups5:",self.groups)
         self.table_df=self.filtered_df[df_index]
-        DebugMsg2("Groups6:",self.groups)
         self.initialize_figs()
-        DebugMsg2("Groups6:",self.groups)
         #self.update_graph()
 
     def setDataFile(self,datafile,isxlsx,sheetname,skiprows,replace_with_nan,df_index):
@@ -431,7 +429,7 @@ class Dashboard:
         dtypes=self.loadMetadata(self.default_df_index,'ColumnsDataTypes')
         mtime = os.path.getmtime(FileInfo['Path'])
         if mtime > FileInfo['LastModified']:
-            print("Reading file " + str(FileInfo['Path']) + " skiprows=" + str(FileInfo['SkipRows'])  )
+            Info("Reading file " + str(FileInfo['Path']) + " skiprows=" + str(FileInfo['SkipRows'])  )
             FileInfo['LastModified'] = mtime
             if FileInfo['isXlsx']:
                 if FileInfo['Sheet']==None:
@@ -459,7 +457,7 @@ class Dashboard:
             self.DF_read_copy[FileInfo['Path']] = self.update_dtypes(df)
             
         else:
-            print("File not changed")
+            Info("File not changed")
         return self.DF_read_copy[FileInfo['Path']].copy()
         
     
@@ -638,13 +636,13 @@ class Dashboard:
                 retval=retval.replace("".join(groups),"~df['" + groups[1] + "'].str.contains(\"" + groups[4] + "\")")
             elif is_numeric_dtype(df[groups[1]]):
                 retval=retval.replace("".join(groups),"df['" + groups[1] + "'] != " + groups[4] )
-                print(retval)
+                DebugMsg(retval)
 
         matches= re.findall("(\{)(\S*?)(}\s+contains\s+)(\S*)",retval)
         for groups in matches:
             if is_numeric_dtype(df[groups[1]]):
                 retval=retval.replace("".join(groups),"{" + groups[1] + "} == " + groups[3] )
-                print(retval)
+                DebugMsg(retval)
                 
         retval= re.sub("\{(\S*?)}(\s*=[^=])","\\1\\2",retval,1)
         retval= re.sub("\{(\S*?)}","df['\\1']",retval)
@@ -765,7 +763,6 @@ class Dashboard:
                 legends=[""]
             first_legend=True
             for legend in legends:
-                #print(legend)
                 legend_name=legend
                 secondary_axis=False
                 if append_yaxis_name_in_legend:
@@ -796,16 +793,6 @@ class Dashboard:
                 if self.add_df_index_in_legend:
                     legend_name="F" + str(df_index) + ":" + str(legend_name)
 
-                #print("NITinq2")
-                #print(self.GlobalParams['SecAxisTitles'])
-                #print("SecondaryLegends2")
-                #print(self.GraphParams["Secondary_Legends"])
-                #print(str(legend_name))
-                #print(secondary_axis)
-                #print()
-                
-
-                #print(legend)
                 dftmp=df
                 if PrimaryLegendsColName is not None: 
                     if legend=="#blank":
@@ -815,7 +802,6 @@ class Dashboard:
                        dftmp = df[df[PrimaryLegendsColName] == legend]
                 if len(self.GraphParams["Xaxis"])>0:
                     dftmp =dftmp.sort_values( by=self.GraphParams["Xaxis"])
-                #            print(dftmp.head())
                 if (self.GraphParams["GraphType"] in  ["Pie"]):
                     col=col+1
                     x=dftmp[self.newXAxisColName]
@@ -993,7 +979,7 @@ class Dashboard:
             if (self.GraphParams["GraphType"] != "BarH") and (
                 self.GraphParams["GraphType"] != "BarStackedH" ):
                 self.figs[grpid].update_yaxes(rangemode="tozero")
-        print("updated_figs")
+        Info("updated_figs")
         return ""
 
 
@@ -1034,7 +1020,6 @@ class Dashboard:
                             Operations_Done="\n".join(filters[:step_cnt])
                             Allfilter="\n".join(filters[step_cnt:])
                 else:
-                    #print(df.dtypes)
                     df=df[pd.eval(filter_expr)]
         if update_previous_operations and update_prev:
             if len(self.GraphParams['PreviousOperations']) == 0  or self.GraphParams['PreviousOperations'][-1] != Operations_Done:
@@ -1120,8 +1105,6 @@ class Dashboard:
                 list_of_dic.append({"label": col, "value": col})
         elif type == "Secondary_Legends" :
             if self.GlobalParams['available_legends'] is not None:
-                #print("NITINq3")
-                #print(self.GlobalParams['available_legends'])
                 for col in self.GlobalParams['available_legends']:
                     list_of_dic.append({"label": col, "value": col})
             else:
@@ -1346,7 +1329,7 @@ class Dashboard:
                     multi=False,
                     clearable=False,
             )],   
-                style=dict(display=disp,width='13%',height='100%', verticalAlign='center')
+                style=dict(display=disp,width='15%',height='100%', verticalAlign='center')
             ),
             html.Div([
              dcc.Input(
@@ -1354,7 +1337,10 @@ class Dashboard:
                         type='text',
                         placeholder='CustomDatetimeFormat',
                         style=dict(width='100%',height='100%' )
-            )],
+            ),
+            html.A("Format Help",href="https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior",target="_bank")
+            
+            ],
                     id="input_custom_datetime_format_container",
                 style=dict(display='none',width='10%', verticalAlign='top')
             ),   
@@ -2286,9 +2272,6 @@ class Dashboard:
                 self.GraphParams["Filters"] = filter
 
         
-        #print("SecondaryLegends")
-        #print(self.GraphParams["Secondary_Legends"])
-
         for col in ["Primary_Legends","Scatter_Labels","Secondary_Legends"]:
             if self.GraphParams[col] is None:
                 self.GraphParams[col]=[]
@@ -2334,8 +2317,6 @@ class Dashboard:
                     self.plot_df[df_index],extra=self.filter_sort_df(self.plot_df[df_index],self.GraphParams["FilterAgregatedData"],df_index)
             self.update_graph(plot_df_indexes)
 
-            #pprint(self.GraphParams)
-            #print("self.aggregate1: " + str(self.aggregate))
         else:
             for df_index in self.df_indexes:
                 if self.df[df_index] is None:
@@ -2346,7 +2327,6 @@ class Dashboard:
         self.GlobalParams['Datatable_columns']=[]
         if self.plot_df[org_idx] is not None:
             for col in self.plot_df[org_idx].columns:
-                #print(col)
                 if not str(col).startswith('#'):
                     self.GlobalParams['Datatable_columns'].append(col)
 
@@ -2414,7 +2394,7 @@ if __name__ == "__main__":
     args = argparser.parse_args()
     debug=args.debug
 
-    print("Start")
+    Info("Start")
     assert os.path.exists(args.file)
     if (args.isxlsx):
         sheet_names=get_xlsx_sheet_names(args.file)
