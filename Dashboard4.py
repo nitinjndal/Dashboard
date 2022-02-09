@@ -447,6 +447,11 @@ class Dashboard:
                 df=pd.read_csv(FileInfo['Path'], sep=self.separatorMap[sep],skiprows=FileInfo['SkipRows'],dtype=dtypes)
                 df.columns = df.columns.astype(str)
 
+            col_ren={}
+            for col in df.columns:
+                col_ren[col]=re.sub("\s","__",col)
+            df=df.rename(columns=col_ren)
+
             replace_dict=dict()
             if FileInfo['ReplaceWithNan'] is not None:
                 for nan_value in FileInfo['ReplaceWithNan'].split(","):
@@ -485,7 +490,10 @@ class Dashboard:
                 for df_index in filelist["LastLoadedFile"]:
                     name=filelist["LastLoadedFile"][df_index]
                     self.DataFile[df_index]=filelist["recent"][name]
-                    self.update_df(self.DataFile[df_index],df_index)
+                    if os.path.exists(self.DataFile[df_index]['Path']):
+                        self.update_df(self.DataFile[df_index],df_index)
+                    else:
+                        print(self.DataFile[df_index]['path'] + " not exists")
 
     
     def updateRecentFiles(self,df_index):
@@ -638,7 +646,7 @@ class Dashboard:
                 retval=retval.replace("".join(groups),"df['" + groups[1] + "'] != " + groups[4] )
                 DebugMsg(retval)
 
-        matches= re.findall("(\{)(\S*?)(}\s+contains\s+)(\S*)",retval)
+        matches= re.findall("(\{)([^}]*?)(}\s+contains\s+)(\S*)",retval)
         for groups in matches:
             if is_numeric_dtype(df[groups[1]]):
                 retval=retval.replace("".join(groups),"{" + groups[1] + "} == " + groups[3] )
@@ -947,8 +955,10 @@ class Dashboard:
                 hoverlabel=dict(namelength=-1),
                 legend_title=self.GlobalParams["LegendTitle"],
                 margin={"l": 2, "r": 2, "t": 40, "b": 40},
+                height=1000
             )
             if self.GraphParams["GraphType"] == "Scatter":
+
                 self.figs[grpid].update_layout(hovermode="closest")
             else:
                 self.figs[grpid].update_layout(hovermode="x")
@@ -2059,6 +2069,8 @@ class Dashboard:
 
 
     def callbackLoadFile(self,filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index,refreshDashboard):
+        if skiprows is None:
+            skiprows=0
         skiprows=int(skiprows)
         if filename is not None:
             filename=os.path.abspath(filename)
