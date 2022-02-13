@@ -907,10 +907,11 @@ class Dashboard:
                         secondary_y=secondary_axis,
                     )
                 else:
-                    tmp_xaxis_vals=set(dftmp[self.newXAxisColName])
-                    missing_vals=list(all_xaxis_vals- tmp_xaxis_vals)
-                    tmpx=pd.DataFrame.from_dict({self.newXAxisColName:missing_vals,yaxis_col:None})
-                    dftmp=dftmp.append(tmpx)
+                    if len(all_xaxis_vals) > 0 :
+                        tmp_xaxis_vals=set(dftmp[self.newXAxisColName])
+                        missing_vals=list(all_xaxis_vals- tmp_xaxis_vals)
+                        tmpx=pd.DataFrame.from_dict({self.newXAxisColName:missing_vals,yaxis_col:None})
+                        dftmp=dftmp.append(tmpx)
                     dftmp =dftmp.sort_values( by=self.newXAxisColName)
 
                     fig.add_trace(
@@ -970,7 +971,7 @@ class Dashboard:
                     if self.plot_df[df_index] is None:
                         continue
                     all_xaxis_vals=all_xaxis_vals+ list(self.plot_df[df_index][self.newXAxisColName])
-            all_xaxis_vals=set(all_xaxis_vals)
+                all_xaxis_vals=set(all_xaxis_vals)
 
             for df_index in df_indexes:
                 current_df_count+=1
