@@ -84,7 +84,8 @@ class Dashboard:
         self.DashboardMode=DashboardMode
         self.ComparisonFunctionalityPlaceholder()
         df_index=self.default_df_index
-       # self.setDataFile(datafile,isxlsx,sheetname,skiprows,replace_with_nan,df_index)
+        if datafile is not None:
+            self.setDataFile(datafile,isxlsx,sheetname,skiprows,replace_with_nan,df_index)
         self.createDashboard(df_index,self.DashboardMode)
         self.app = dash.Dash(external_scripts=["./dashboard.css"])
 #        self.app = dash.Dash()
@@ -437,7 +438,7 @@ class Dashboard:
                 df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'],dtype=dtypes)
                 df.columns = df.columns.astype(str)
 
-                DebugMsg3("DF head=", df.head())
+                #DebugMsg3("DF head=", df.head())
             else:
                 DebugMsg3("Reading File123")
                 sep= FileInfo['Sheet']
@@ -639,6 +640,14 @@ class Dashboard:
         DebugMsg("Filter Expr init: " ,  retval)
         
         matches= re.findall("(\{)(\S*?)(}\s+contains\s+)(\"!\s+)(\S*)(\")",retval)
+        contains=False
+        if matches is not None:
+            contains=True
+        else:
+            matches= re.findall("(\{)(\S*?)(}\s+not_contains\s+)(\"!\s+)(\S*)(\")",retval)
+            
+        
+        
         for groups in matches:
             if is_string_dtype(df[groups[1]]):
                 retval=retval.replace("".join(groups),"~df['" + groups[1] + "'].str.contains(\"" + groups[4] + "\")")
@@ -647,6 +656,13 @@ class Dashboard:
                 DebugMsg(retval)
 
         matches= re.findall("(\{)([^}]*?)(}\s+contains\s+)(\S*)",retval)
+        contains=False
+        if matches is not None:
+            contains=True
+        else:
+            matches= re.findall("(\{)(\S*?)(}\s+not_contains\s+)(\"!\s+)(\S*)(\")",retval)
+            
+        
         for groups in matches:
             if is_numeric_dtype(df[groups[1]]):
                 retval=retval.replace("".join(groups),"{" + groups[1] + "} == " + groups[3] )
@@ -656,7 +672,12 @@ class Dashboard:
         retval= re.sub("\{(\S*?)}","df['\\1']",retval)
         retval= re.sub("\&\&", "&",retval)
         retval= re.sub("\|\|", "|",retval)
-        retval= re.sub("\s+contains\s+(\S*)", ".str.contains('\\1')",retval)
+        if re.search("\s+contains\s+(\S*)",retval):
+            retval= re.sub("\s+contains\s+(\S*)", ".str.contains('\\1')",retval)
+            DebugMsg("11 Retval=",retval)
+        if re.search("(\S+)\s+not_contains\s+(\S*)",retval):
+            retval= re.sub("(\S+)\s+not_contains\s+(\S*)", "~\\1.str.contains('\\2')",retval)
+            DebugMsg("12 Retval=",retval)
         retval= retval.replace(".str.contains('#blank')",".isna()")
         DebugMsg("Filter Expr: " ,  retval)
         
@@ -703,7 +724,7 @@ class Dashboard:
 
 
     
-    def update_fig(self, df, yaxis_cols, legend_cols, secondary_axis, fig,number_of_dfs,current_df_count,df_index):
+    def update_fig(self, df, yaxis_cols, legend_cols, secondary_axis, fig,number_of_dfs,current_df_count,df_index,all_xaxis_vals):
         if len(yaxis_cols) == 0:
             return fig
 
@@ -886,6 +907,12 @@ class Dashboard:
                         secondary_y=secondary_axis,
                     )
                 else:
+                    tmp_xaxis_vals=set(dftmp[self.newXAxisColName])
+                    missing_vals=list(all_xaxis_vals- tmp_xaxis_vals)
+                    tmpx=pd.DataFrame.from_dict({self.newXAxisColName:missing_vals,yaxis_col:None})
+                    dftmp=dftmp.append(tmpx)
+                    dftmp =dftmp.sort_values( by=self.newXAxisColName)
+
                     fig.add_trace(
                         PlotFunc(
                             x=dftmp[self.newXAxisColName],
@@ -933,6 +960,18 @@ class Dashboard:
             else:
                 df_indexes=plot_df_indexes
 
+            all_xaxis_vals=[]
+
+            if is_string_dtype(self.plot_df[self.default_df_index][self.newXAxisColName]) and self.GraphParams["GraphType"] == "Line":
+                        ### to align the xaxis values for line graphs  in multiple files
+                        ### if not aligned, graphs could be distored
+                DebugMsg("Getting values of all Xaxis points")
+                for df_index in df_indexes:
+                    if self.plot_df[df_index] is None:
+                        continue
+                    all_xaxis_vals=all_xaxis_vals+ list(self.plot_df[df_index][self.newXAxisColName])
+            all_xaxis_vals=set(all_xaxis_vals)
+
             for df_index in df_indexes:
                 current_df_count+=1
                 if self.df[df_index] is None:
@@ -948,7 +987,7 @@ class Dashboard:
                     self.figs[grpid],
                     number_of_dfs,
                     current_df_count,
-                    df_index
+                    df_index,all_xaxis_vals
                 )
 
             self.figs[grpid].update_layout(
@@ -2323,7 +2362,7 @@ class Dashboard:
             for df_index in self.df_indexes:
                 if self.df[df_index] is None:
                     continue
-                DebugMsg2("First Load self.df[df_index] " + df_index ,self.df[df_index])
+#                DebugMsg2("First Load self.df[df_index] " + df_index ,self.df[df_index])
                 self.plot_df[df_index] = self.extract_data(self.filtered_df[df_index], new_cols)
                 if self.aggregate:
                     self.plot_df[df_index],extra=self.filter_sort_df(self.plot_df[df_index],self.GraphParams["FilterAgregatedData"],df_index)
@@ -2378,7 +2417,7 @@ def get_str_dtype(df, col):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description="Dashboard")
     argparser.add_argument(
-        "-file", metavar="datafile.csv", required=True, help="DashboardDataDir")
+        "-file", metavar="datafile.csv", required=False,default=None, help="DashboardDataDir")
     argparser.add_argument(
         "-DashboardMode", action='store_true', help="DashboardDataDir")
 
@@ -2407,13 +2446,14 @@ if __name__ == "__main__":
     debug=args.debug
 
     Info("Start")
-    assert os.path.exists(args.file)
-    if (args.isxlsx):
-        sheet_names=get_xlsx_sheet_names(args.file)
-        if len(sheet_names) > 1:
-            if args.sheet== None:
-                raise ValueError("xlsx files contains more than 1 sheet i.e " + 
-                        str(sheet_names) + "\n" + "Please specfy sheetname using -sheetname argument")
+    if args.file is not None:
+        assert os.path.exists(args.file)
+        if (args.isxlsx):
+            sheet_names=get_xlsx_sheet_names(args.file)
+            if len(sheet_names) > 1:
+                if args.sheet== None:
+                    raise ValueError("xlsx files contains more than 1 sheet i.e " + 
+                            str(sheet_names) + "\n" + "Please specfy sheetname using -sheetname argument")
 
 
 
