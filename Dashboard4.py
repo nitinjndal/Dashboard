@@ -30,11 +30,19 @@ from zipfile import ZipFile
 from bs4 import BeautifulSoup  # you also need to install "lxml" for the XML parser
 from tabulate import tabulate
 from collections import OrderedDict
+import socket
+from contextlib import closing
 
 from pandas.api.types import is_string_dtype
 from pandas.api.types import is_numeric_dtype
 
-
+def find_free_port():
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(('', 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
+    
+    
 print("############################################")
 print("############################################")
 print("############################################")
@@ -162,7 +170,7 @@ class Dashboard:
                             'SkipRows': skiprows,
                             'ReplaceWithNan' : replace_with_nan, 
                             'LastModified' : 0 ,
-                            'MetadataFile' : datafile + ".dashjsondata" , 
+                            ')MetadataFile' : datafile + ".dashjsondata" , 
                             }
             self.update_df(self.DataFile[df_index],df_index)
             self.updateRecentFiles(df_index)
@@ -192,10 +200,18 @@ class Dashboard:
     
     def loadMetadata(self,df_index,header=None):
         jsondata=None
+        name= self.getDataFileName(self.DataFile[df_index]) 
         if self.DataFile[df_index] is not None and os.path.exists(self.DataFile[df_index]['MetadataFile']):
             with open(self.DataFile[df_index]['MetadataFile']) as json_file:
                 jsondata=json.load(json_file)  
+                if header is None:
+                    return jsondata ## just to update data
+                if name not in jsondata:
+                    jsondata=None
+                else:
+                    jsondata=jsondata[name]
         if jsondata is not None and header is not None: 
+             
             if header in jsondata:
                 jsondata=jsondata[header]
             else:
@@ -204,9 +220,13 @@ class Dashboard:
 
     def updateMetadata(self,header,data,df_index):
         jsondata=self.loadMetadata(df_index)
+        name= self.getDataFileName(self.DataFile[df_index]) 
         if jsondata is None:
             jsondata=dict()
-        jsondata[header]=data
+        if name not in jsondata:
+            jsondata[name]=dict()
+            
+        jsondata[name][header]=data
         with open(self.DataFile[df_index]['MetadataFile'], "w") as outfile:
             json.dump(jsondata,outfile)
         
@@ -673,10 +693,11 @@ class Dashboard:
         retval= re.sub("\&\&", "&",retval)
         retval= re.sub("\|\|", "|",retval)
         if re.search("\s+contains\s+(\S*)",retval):
-            retval= re.sub("\s+contains\s+(\S*)", ".str.contains('\\1')",retval)
+#            retval= re.sub("\s+contains\s+(\S*)", ".str.contains('\\1') == True",retval)
+            retval= re.sub("(\S+)\s+contains\s+(\S*)", "(\\1.str.contains('\\2') == True)",retval)
             DebugMsg("11 Retval=",retval)
         if re.search("(\S+)\s+not_contains\s+(\S*)",retval):
-            retval= re.sub("(\S+)\s+not_contains\s+(\S*)", "~\\1.str.contains('\\2')",retval)
+            retval= re.sub("(\S+)\s+not_contains\s+(\S*)", "~\\1.str.contains('\\2') == True",retval)
             DebugMsg("12 Retval=",retval)
         retval= retval.replace(".str.contains('#blank')",".isna()")
         DebugMsg("Filter Expr: " ,  retval)
@@ -971,6 +992,7 @@ class Dashboard:
                     if self.plot_df[df_index] is None:
                         continue
                     all_xaxis_vals=all_xaxis_vals+ list(self.plot_df[df_index][self.newXAxisColName])
+
                 all_xaxis_vals=set(all_xaxis_vals)
 
             for df_index in df_indexes:
@@ -1057,6 +1079,7 @@ class Dashboard:
             elif filter != "":
                 if (re.match("^\s*\S*\s*=",filter_expr) and (not re.match("^\s*\S*\s*=\s*=",filter_expr) )) :
                     df=pd.eval(filter_expr,target=df)
+                    DebugMsg("df= " + df)
                     for col in df.columns:
                         if col not in self.df[df_index].columns :
                             if (not self.aggregate) or (not update_prev):
@@ -2823,4 +2846,5 @@ if __name__ == "__main__":
    # waitress.serve(app.server, host="0.0.0.0", port=8054,connection_limit=2)
     #update_output(1,None,0, 20, [], None,"",None,"",['mem_bucketed'],"Scatter",['CPU_TIME'],None,None,None,None,['refreshbtn', 'n_clicks'] )
 
-    app.run_server(debug=True, port=8054)
+    #app.run_server(debug=True,port=find_free_port())
+    app.run_server(debug=True,port=8050)
