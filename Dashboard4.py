@@ -170,7 +170,7 @@ class Dashboard:
                             'SkipRows': skiprows,
                             'ReplaceWithNan' : replace_with_nan, 
                             'LastModified' : 0 ,
-                            ')MetadataFile' : datafile + ".dashjsondata" , 
+                            'MetadataFile' : datafile + ".dashjsondata" , 
                             }
             self.update_df(self.DataFile[df_index],df_index)
             self.updateRecentFiles(df_index)
@@ -697,7 +697,7 @@ class Dashboard:
             retval= re.sub("(\S+)\s+contains\s+(\S*)", "(\\1.str.contains('\\2') == True)",retval)
             DebugMsg("11 Retval=",retval)
         if re.search("(\S+)\s+not_contains\s+(\S*)",retval):
-            retval= re.sub("(\S+)\s+not_contains\s+(\S*)", "~\\1.str.contains('\\2') == True",retval)
+            retval= re.sub("(\S+)\s+not_contains\s+(\S*)", "~(\\1.str.contains('\\2') == True)",retval)
             DebugMsg("12 Retval=",retval)
         retval= retval.replace(".str.contains('#blank')",".isna()")
         DebugMsg("Filter Expr: " ,  retval)
@@ -2132,7 +2132,7 @@ class Dashboard:
 
 
     def callbackLoadFile(self,filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index,refreshDashboard):
-        if skiprows is None:
+        if skiprows is None or skiprows == "":
             skiprows=0
         skiprows=int(skiprows)
         if filename is not None:
@@ -2420,7 +2420,8 @@ class Dashboard:
             if self.figs[grpid] is None:
                 self.figs[grpid]=go.Figure()
             retval.append(self.figs[grpid])
-            self.save_history(MC.current_df_index)
+            if MC.DataFile[MC.current_df_index] is not None:
+                self.save_history(MC.current_df_index)
 
         return retval
 
@@ -2441,6 +2442,9 @@ def get_str_dtype(df, col):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(description="Dashboard")
     argparser.add_argument(
+        "-port", metavar="8050",  required=True ,type=int, 
+        help="Port number to start server on")
+    argparser.add_argument(
         "-file", metavar="datafile.csv", required=False,default=None, help="DashboardDataDir")
     argparser.add_argument(
         "-DashboardMode", action='store_true', help="DashboardDataDir")
@@ -2457,6 +2461,7 @@ if __name__ == "__main__":
         "-treat_as_missing_value", metavar="MISSING,NA",  default=None,
         help="Values in data which should be treated as missing instead of a string")
 
+
     argparser.add_argument(
         "-isxlsx", action='store_true', help="If the input file is in xlsx form")
 
@@ -2468,6 +2473,7 @@ if __name__ == "__main__":
 
     args = argparser.parse_args()
     debug=args.debug
+    port=args.port
 
     Info("Start")
     if args.file is not None:
@@ -2843,8 +2849,8 @@ if __name__ == "__main__":
         return str(get_str_dtype(sample_df, col)) + " # "  +str(col)
 
 
-   # waitress.serve(app.server, host="0.0.0.0", port=8054,connection_limit=2)
+    waitress.serve(app.server, host="0.0.0.0", port=port,connection_limit=20)
     #update_output(1,None,0, 20, [], None,"",None,"",['mem_bucketed'],"Scatter",['CPU_TIME'],None,None,None,None,['refreshbtn', 'n_clicks'] )
 
     #app.run_server(debug=True,port=find_free_port())
-    app.run_server(debug=True,port=8050)
+  #  app.run_server(debug=True,port=port)
