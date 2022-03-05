@@ -1670,7 +1670,7 @@ class Dashboard:
         divs.append(html.Button(id="hidden-update_textarea", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-update_inputvals", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-update_SecondayLegends", style={"display": "none",'width':'100%','border':'2px solid black'}))
-        divs.append(html.Button(id="hidden-update_savedGraphs", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-update_", style={"display": "none",'width':'100%','border':'2px solid black'}))
 
 
         return divs
