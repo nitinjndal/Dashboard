@@ -1,5 +1,5 @@
-#! /usr/bin/env python
-##! /usr/bin/arch -x86_64 /usr/bin/env python
+#! /usr/bin/arch -x86_64 /usr/bin/env python
+##! /usr/bin/env python
 
 from logging import error
 import dash
@@ -450,12 +450,19 @@ class Dashboard:
         dtypes=self.loadMetadata(self.default_df_index,'ColumnsDataTypes')
         mtime = os.path.getmtime(FileInfo['Path'])
         if mtime > FileInfo['LastModified']:
-            Info("Reading file " + str(FileInfo['Path']) + " skiprows=" + str(FileInfo['SkipRows'])  )
             FileInfo['LastModified'] = mtime
             if FileInfo['isXlsx']:
                 if FileInfo['Sheet']==None:
                     raise ValueError("SheetName is not defined")
-                df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'],dtype=dtypes)
+                pickle_filename=  FileInfo['Path'] + "." + FileInfo['Sheet'] + ".pickle"  
+                if os.path.exists(pickle_filename):  
+                    Info("Reading file " + pickle_filename  )
+                    df=pd.read_pickle(pickle_filename)
+                else:
+                    Info("Reading file " + str(FileInfo['Path']) + " skiprows=" + str(FileInfo['SkipRows'])  )
+                    df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'],dtype=dtypes)
+                    df=pd.to_pickle(pickle_filename)
+
                 df.columns = df.columns.astype(str)
 
                 #DebugMsg3("DF head=", df.head())
@@ -465,6 +472,7 @@ class Dashboard:
                 if FileInfo['Sheet']==None:
                     raise ValueError("Separator is not defined")
                     
+                Info("Reading file " + FileInfo['Path'])
                 df=pd.read_csv(FileInfo['Path'], sep=self.separatorMap[sep],skiprows=FileInfo['SkipRows'],dtype=dtypes)
                 df.columns = df.columns.astype(str)
 
@@ -694,10 +702,14 @@ class Dashboard:
         retval= re.sub("\|\|", "|",retval)
         if re.search("\s+contains\s+(\S*)",retval):
 #            retval= re.sub("\s+contains\s+(\S*)", ".str.contains('\\1') == True",retval)
-            retval= re.sub("(\S+)\s+contains\s+(\S*)", "(\\1.str.contains('\\2') == True)",retval)
+            retval,replacements= re.subn("(\S+)\s+contains\s+(\"[^\"]*\")", "(\\1.str.contains(\\2) == True)",retval)
+            if replacements == 0:
+                retval= re.sub("(\S+)\s+contains\s+(\S*)", "(\\1.str.contains('\\2') == True)",retval)
             DebugMsg("11 Retval=",retval)
         if re.search("(\S+)\s+not_contains\s+(\S*)",retval):
-            retval= re.sub("(\S+)\s+not_contains\s+(\S*)", "~(\\1.str.contains('\\2') == True)",retval)
+            retval,replacements= re.subn("(\S+)\s+not_contains\s+(\"[^\"]*\")", "~(\\1.str.contains(\\2) == True)",retval)
+            if replacements == 0:
+                retval= re.sub("(\S+)\s+not_contains\s+(\S*)", "~(\\1.str.contains('\\2') == True)",retval)
             DebugMsg("12 Retval=",retval)
         retval= retval.replace(".str.contains('#blank')",".isna()")
         DebugMsg("Filter Expr: " ,  retval)
@@ -1077,6 +1089,7 @@ class Dashboard:
                         inplace=False,
                     )
             elif filter != "":
+                DebugMsg("Filter EXpr2= " + filter_expr)
                 if (re.match("^\s*\S*\s*=",filter_expr) and (not re.match("^\s*\S*\s*=\s*=",filter_expr) )) :
                     df=pd.eval(filter_expr,target=df)
                     DebugMsg("df= " + df)
@@ -1220,6 +1233,8 @@ class Dashboard:
         elif type == "AvailableSheetNames":
             list_of_dic.append({"label": "data", "value": "data"})
             list_of_dic.append({"label": "data2", "value": "data2"})
+        elif type == "Functions":
+            list_of_dic.append({"label": "Add Tag", "value": "Add Tag"})
         else :
             for col in df.columns:
                 list_of_dic.append({"label": col, "value": col})
@@ -1365,6 +1380,64 @@ class Dashboard:
         DebugMsg3("divs ", divs)
         return (divs)
 
+
+    def layout_args(self,arguments):
+        argslist_layout=[]
+        max_args=5
+        for arg in range(0,max_args):
+            disp='inline-block'
+            if arg>= arguments:
+                disp='none'
+            strarg=str(arg)
+            argslist_layout.append(dcc.Input(
+                    id="input_arg" + strarg,
+                    type='text',
+                    placeholder='argument' + strarg,
+                    style=dict(display=disp,width='30%', height='100%')
+                )
+            )
+            argslist_layout.append(html.Div([
+            html.H3()], style=dict(display=disp,width='2%',height='100%', verticalAlign='center')))
+        return argslist_layout
+
+
+
+
+    def layout_functions(self):
+        disp='inline-block'
+        divs=[]
+        divs.append(
+            html.Div([
+        
+            html.Div([
+            html.H3("Execute Functions" )], style=dict(display=disp,width='100%',height='100%', verticalAlign='center')),
+
+            html.Div([
+                dcc.Dropdown(
+                    id="input_function",
+                    options=self.get_dropdown_values("Functions"),
+                    value=None,
+                )], 
+                style=dict(display=disp,width='25%',height='100%', verticalAlign='center')
+            ),
+        
+            html.Div([
+            html.H3()], style=dict(display=disp,width='2%',height='100%', verticalAlign='center')),
+            
+            html.Div(self.layout_args(1),
+                    id="input_args_container",
+                style=dict(display=disp,width='65%', verticalAlign='top')
+            ),   
+
+            html.Button("Apply", id="btn_apply_func", n_clicks=0,style=dict(verticalAlign='top',display=disp,width='5%',height='100%')),
+
+            ],style={'display':'block','width':'100%','height' : '100%'} 
+            )
+        )
+        return divs
+
+
+
     def layout_update_data_types(self):
         disp='inline-block'
         divs=[]
@@ -1438,6 +1511,7 @@ class Dashboard:
     def layout_tab2(self,tab_style):
         divs=[]
         divs.append(html.Div(self.layout_update_data_types()  ))
+        divs.append(html.Div(self.layout_functions()  ))
         divs.append(html.Div(self.layout_display_data_types() ))
         divs.append(html.Div([html.P([ html.Br()] * 5 ,id='dd-output-container')]))
         divs=[html.Div(divs,id='tab2_container',style=tab_style)]
@@ -1540,7 +1614,7 @@ class Dashboard:
                         style=dict(height='80%' ,width='90%')
                         )],
                         style=dict(display=disp,width='5%',height='100%',verticalAlign='top')
-                    ),
+                   ),
                     html.Div([
                     dcc.Input(
                         id="input_replaceWithNan2",
@@ -1569,6 +1643,8 @@ class Dashboard:
         )
         return divs
 
+
+
     def hidden_callback_collectors(self):
         divs=[]
         divs.append(html.Div(id="hidden-div1", style={"display": "none",'width':'100%','border':'2px solid black'}))
@@ -1585,6 +1661,18 @@ class Dashboard:
         divs.append(html.Button(id="hidden2-loadfile2", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-dropdown_options_dfindex1", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-dropdown_options_dfindex2", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(dcc.Checklist(id="hidden-input_args", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-outputFunc", style={"display": "none",'width':'100%','border':'2px solid black'}))
+
+        divs.append(html.Button(id="hidden-update_table_data", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-update_table_columns", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-update_figure", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-update_textarea", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-update_inputvals", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-update_SecondayLegends", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-update_savedGraphs", style={"display": "none",'width':'100%','border':'2px solid black'}))
+
+
         return divs
 
     def plot_top(self):
@@ -2066,6 +2154,57 @@ class Dashboard:
         Outputs.append(Output("input_custom_datetime_format_container", "style"))
         return Outputs
 
+    def get_Inputs_applyFunc(self):
+        Inputs = list()
+        Inputs.append(Input("btn_apply_func", "n_clicks"))
+        Inputs.append(State("input_function", "value"))
+        Inputs.append(State("hidden-input_args", "value"))
+        return Inputs
+
+    def get_Outputs_applyFunc(self):
+        Outputs = list()
+        Outputs.append(Output("hidden-outputFunc", "n_clicks"))
+        return Outputs
+    
+    def addTag(self,tag):
+        DebugMsg("Add tag " + tag)
+        col="#TAG"
+        for df_index in self.df_indexes:
+            if self.filtered_df[df_index] is not None:
+                if col not in self.filtered_df[df_index].columns :
+                    self.filtered_df[df_index][col]=tag
+                else:
+                    self.filtered_df[df_index][col]=self.filtered_df[df_index][col]+ "," + tag 
+
+                if col not in self.df[df_index].columns :
+                    self.df[df_index][col]=np.nan
+                self.df[df_index].loc[self.filtered_df[df_index].index,col]=self.filtered_df[df_index][col]
+                self.GlobalParams['columns_updated']=True
+                DebugMsg("DF after tagging " + str(df_index),self.df[df_index].columns)
+
+    
+    def callback_apply_func(self,function, args):
+        if function== "Add Tag":
+            tagname=args[0]
+            self.addTag(tagname)
+        return [dash.no_update]
+
+
+
+    def get_Inputs_args(self):
+        Inputs = list()
+        Inputs.append(Input("input_arg0", "value"))
+        Inputs.append(Input("input_arg1", "value"))
+        Inputs.append(Input("input_arg2", "value"))
+        Inputs.append(Input("input_arg3", "value"))
+        Inputs.append(Input("input_arg4", "value"))
+        return Inputs
+
+    def get_Outputs_args(self):
+        Outputs = list()
+        Outputs.append(Output("hidden-input_args", "value"))
+        return Outputs
+
 
     def get_Inputs_update_dtype(self):
         Inputs = list()
@@ -2278,7 +2417,6 @@ class Dashboard:
         Inputs.append(Input("table-paging-with-graph", "sort_by")),
         Inputs.append(Input('textarea-filter', 'n_blur')),
         Inputs.append(Input("table-paging-with-graph", "filter_query"))
-      #  Inputs.append(Input("table-paging-with-graph", "derived_filter_query_structure"))
         Inputs.append(Input("btn_clearFilters", "n_clicks"))
         Inputs.append(Input("chk_PreAggregated", "value"))
         Inputs.append(Input("select_data_df_index", "value"))
@@ -2810,6 +2948,15 @@ if __name__ == "__main__":
             return [dict(display='inline-block',width='10%', verticalAlign='top')]
         else:
             return [dict(display='none',width='10%', verticalAlign='top')]
+
+
+    @app.callback(MC.get_Outputs_args(),MC.get_Inputs_args(),prevent_initial_call=True)
+    def update_args(arg1,arg2,arg3,arg4,arg5):
+        return [[arg1,arg2,arg3,arg4,arg5]]
+
+    @app.callback(MC.get_Outputs_applyFunc(),MC.get_Inputs_applyFunc(),prevent_initial_call=True)
+    def update_func(nclicks,function,args):
+        return MC.callback_apply_func(function,args) 
         
     #@app.callback(Output('table-paging-with-graph', 'data'),
     #@app.callback(Output('table-paging-with-graph', 'data'),
@@ -2849,8 +2996,8 @@ if __name__ == "__main__":
         return str(get_str_dtype(sample_df, col)) + " # "  +str(col)
 
 
-    waitress.serve(app.server, host="0.0.0.0", port=port,connection_limit=20)
+    #waitress.serve(app.server, host="0.0.0.0", port=port,connection_limit=20)
     #update_output(1,None,0, 20, [], None,"",None,"",['mem_bucketed'],"Scatter",['CPU_TIME'],None,None,None,None,['refreshbtn', 'n_clicks'] )
 
     #app.run_server(debug=True,port=find_free_port())
-  #  app.run_server(debug=True,port=port)
+    app.run_server(debug=True,port=port)
