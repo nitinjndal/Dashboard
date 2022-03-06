@@ -136,7 +136,11 @@ class Dashboard:
         self.GlobalParams['LegendTitle']="Legend"
         self.GlobalParams['Datatable_columns']=[]
         self.GlobalParams['columns_updated']=False
+
         self.GlobalParams['PreAggregatedData']=True
+        self.GlobalParams['TableCurrentPage']=1
+        self.GlobalParams['TablePageSize']=20
+        self.GlobalParams['TableDfIndex']=1
 
         tmp=None
         if self.DataFile[df_index] is not None :
@@ -1501,7 +1505,7 @@ class Dashboard:
     
     def layout_tab1(self,tab_style):
         divs=[]
-        divs=self.plot_top()
+        divs=self.layout_plot_top()
 
         divs.append(self.layout_plot_inputs())
         divs=divs + self.layout1() + self.layout_save_plots() +self.dataframe_layout(self.current_df_index) + self.layout_number_records()
@@ -1664,9 +1668,10 @@ class Dashboard:
         divs.append(dcc.Checklist(id="hidden-input_args", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-outputFunc", style={"display": "none",'width':'100%','border':'2px solid black'}))
 
-        divs.append(html.Button(id="hidden-update_table_data", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-update_table-from-refreshbtn", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-update_table-from-tableparams", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-update_table_columns", style={"display": "none",'width':'100%','border':'2px solid black'}))
-        divs.append(html.Button(id="hidden-update_figure", style={"display": "none",'width':'100%','border':'2px solid black'}))
+        divs.append(html.Button(id="hidden-update_figure-from-refreshbtn", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-update_textarea", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-update_inputvals", style={"display": "none",'width':'100%','border':'2px solid black'}))
         divs.append(html.Button(id="hidden-update_SecondayLegends", style={"display": "none",'width':'100%','border':'2px solid black'}))
@@ -1675,7 +1680,7 @@ class Dashboard:
 
         return divs
 
-    def plot_top(self):
+    def layout_plot_top(self):
         divs=[]
         if self.ControlMode:
             disp='none'
@@ -1857,7 +1862,7 @@ class Dashboard:
                             id="table-paging-with-graph",
                             columns=[{"name": i, "id": i} for i in sorted(columns)],
                             page_current=0,
-                            page_size=20,
+                            page_size=self.GlobalParams['TablePageSize'],
                             page_action="custom",
                             filter_action="custom",
                             filter_query="",
@@ -2379,6 +2384,162 @@ class Dashboard:
         Outputs = list()
         Outputs.append(Output('display_datatypes', 'children')),
         return Outputs
+    
+    def get_InputsGraphOptions(self):
+        Inputs = list()
+        Inputs.append(Input("hidden-page_refresh2", "n_clicks"))
+        return Inputs
+
+    def get_OutputsGraphOptions(self):
+        Outputs = list()
+        Outputs.append(Output("hidden-input_dropdown_vals","n_clicks"))
+        return Outputs
+    
+
+
+    def get_OutputsRefreshBtn(self):
+        Outputs = list()
+        Outputs.append(Output("hidden-update_figure-from-refreshbtn", "n_clicks"))
+        return Outputs
+
+    def get_InputsRefreshBtn(self):
+        Inputs = list()
+        Inputs.append(Input("refreshbtn", "n_clicks"))
+        for txtbox in self.GraphParamsOrder:
+            Inputs.append(State("input_{}".format(txtbox), "value"))
+        Inputs.append(State("input_{}".format("Scatter_Labels"), "value"))
+        Inputs.append(State("select_plot_df_index", "value"))
+        return Inputs
+
+    def callback_refreshbtn(
+        self,
+        Xaxis,
+        GraphType,
+        Primary_Yaxis,
+        Primary_Legends,
+        Aggregate_Func,
+        Secondary_Legends,
+        Scatter_Labels,
+        plot_df_indexes
+    ):
+        retval=dash.no_update
+        if Primary_Yaxis is not None:
+            self.GraphParams["Primary_Yaxis"] = Primary_Yaxis
+            self.GraphParams["Xaxis"] = Xaxis
+            self.GraphParams["GraphType"] = GraphType
+            self.GraphParams["Primary_Legends"] = Primary_Legends
+            self.GraphParams["Aggregate_Func"] = Aggregate_Func
+            self.GraphParams["Secondary_Legends"] = Secondary_Legends
+            self.GraphParams["Scatter_Labels"] = Scatter_Labels
+
+        for col in ["Primary_Legends","Scatter_Labels","Secondary_Legends"]:
+            if self.GraphParams[col] is None:
+                self.GraphParams[col]=[]
+
+        if self.GraphParams["Primary_Yaxis"] is not None and len(self.GraphParams["Primary_Yaxis"])>0:
+            for df_index in self.df_indexes:
+                if self.df[df_index] is None:
+                    continue
+#                DebugMsg2("First Load self.df[df_index] " + df_index ,self.df[df_index])
+                new_cols=[]
+                self.plot_df[df_index] = self.extract_data(self.filtered_df[df_index], new_cols)
+                if self.aggregate:
+                    self.plot_df[df_index],extra=self.filter_sort_df(self.plot_df[df_index],self.GraphParams["FilterAgregatedData"],df_index)
+            self.update_graph(plot_df_indexes)
+
+        else:
+            for df_index in self.df_indexes:
+                if self.df[df_index] is None:
+                    continue
+                self.plot_df[df_index]=self.filtered_df[df_index] 
+        self.set_Graphid()
+        self.updateMetadata("LastGraph",self.GraphParams,self.default_df_index)
+        if self.DataFile[self.current_df_index] is not None:
+            self.save_history(self.current_df_index)
+        retval=1
+        return [retval]
+
+
+    def get_InputsTableUpdate(self):
+        Inputs = list()
+        Inputs.append(Input("hidden-update_table-from-refreshbtn", "n_clicks"))
+        Inputs.append(Input("hidden-update_table-from-tableparams", "n_clicks"))
+        return Inputs
+
+    def get_OutputsTableUpdate(self):
+        Outputs = list()
+        Outputs.append(Output("table-paging-with-graph", "data"))
+        return Outputs
+    
+    def callback_TableUpdate(self):
+        if self.GlobalParams['TableDfIndex'] == 'None' or self.GlobalParams['TableDfIndex'] is None:
+            df=pd.DataFrame()
+        elif self.GlobalParams['PreAggregatedData']:
+            df=self.filtered_df[self.GlobalParams['TableDfIndex']]
+            self.table_df=df
+        else:
+            df=self.plot_df[self.GlobalParams['TableDfIndex']]
+            self.table_df=df
+    
+        retval=df.iloc[
+            self.GlobalParams['TableCurrentPage'] * self.GlobalParams['TablePageSize'] : (self.GlobalParams['TableCurrentPage'] + 1) * self.GlobalParams['TablePageSize']
+        ].to_dict("records")
+        return [retval]
+
+
+    def get_InputsTableInputs(self):
+        Inputs = list()
+        Inputs.append(Input("table-paging-with-graph", "page_current")),
+        Inputs.append(Input("table-paging-with-graph", "page_size")),
+        Inputs.append(Input("select_data_df_index", "value"))
+        Inputs.append(Input("chk_PreAggregated", "value"))
+        return Inputs
+
+    def get_OutputsTableInputs(self):
+        Outputs = list()
+        Outputs.append(Output("hidden-update_table-from-tableparams", "n_clicks"))
+        return Outputs
+    
+    def callback_TableInputs(self,page_current,page_size,data_df_index,preAggregated):
+        retval=[dash.no_update]
+        self.GlobalParams['TableCurrentPage']=page_current
+        self.GlobalParams['TablePageSize']=page_size
+        self.GlobalParams['TableDfIndex']=data_df_index
+        self.GlobalParams['PreAggregatedData']=preAggregated
+        retval=[1]
+        return retval
+
+
+    def get_InputsFigUpdate(self):
+        Inputs = list()
+        Inputs.append(Input("hidden-update_figure-from-refreshbtn", "n_clicks"))
+        return Inputs
+
+    def get_OutputsFigUpdate(self):
+        Outputs = list()
+        for group in self.groups:
+            grpid = self.get_groupid(group)
+            Outputs.append(
+                Output(component_id="lbl_" + grpid, component_property="children")
+            )
+            Outputs.append(
+                Output(component_id="fig_" + grpid, component_property="figure")
+            )
+        return Outputs
+    
+    def callback_FigUpdate(self):
+        retval=[]
+        for group in self.groups:
+            grpid = self.get_groupid(group)
+            retval.append(json.dumps(self.GraphParams))
+            if grpid not in self.figs:
+                self.figs[grpid]=None
+            if self.figs[grpid] is None:
+                self.figs[grpid]=go.Figure()
+            retval.append(self.figs[grpid])
+        return retval
+
+
 
     def get_Outputs(self):
         Outputs = list()
@@ -2629,7 +2790,44 @@ if __name__ == "__main__":
 
     app = MC.app
 
-    @app.callback(MC.get_Outputs(), MC.get_Inputs(),prevent_initial_call=True)
+
+    @app.callback(MC.get_OutputsRefreshBtn(), MC.get_InputsRefreshBtn(),prevent_initial_call=True)
+    def callback_refreshbtn(
+        self,
+        Xaxis,
+        GraphType,
+        Primary_Yaxis,
+        Primary_Legends,
+        Aggregate_Func,
+        Secondary_Legends,
+        Scatter_Labels,
+        plot_df_indexes
+    ):
+        return MC.callback_refreshbtn(
+        Xaxis,
+        GraphType,
+        Primary_Yaxis,
+        Primary_Legends,
+        Aggregate_Func,
+        Secondary_Legends,
+        Scatter_Labels,
+        plot_df_indexes
+        )
+
+    @app.callback(MC.get_OutputsFigUpdate(), MC.get_InputsFigUpdate(),prevent_initial_call=True)
+    def callback_FigUpdate(n_clicks1):
+        return MC.callback_FigUpdate()
+
+    @app.callback(MC.get_OutputsTableInputs(), MC.get_InputsTableInputs(),prevent_initial_call=True)
+    def callback_TableInputs(page_current,page_size,data_df_index,preAggregated):
+        DebugMsg("callback_TableInputs")
+        return MC.callback_TableInputs(page_current,page_size,data_df_index,preAggregated)
+
+    @app.callback(MC.get_OutputsTableUpdate(), MC.get_InputsTableUpdate(),prevent_initial_call=True)
+    def callback_TableUpdate(nclicks_ref,nclicks_tab):
+        return MC.callback_TableUpdate()
+
+   # @app.callback(MC.get_Outputs(), MC.get_Inputs(),prevent_initial_call=True)
     def update_output(
         n_clicks,n_clicks_refresh, graphname, historicalgraph,
         page_current, page_size, sort_by, advfltr_click,
@@ -2941,6 +3139,10 @@ if __name__ == "__main__":
     @app.callback(MC.get_Outputs_display_dtypes(),MC.get_Inputs_display_dtypes(),prevent_initial_call=True)
     def update_dtypes(nclicks):
         return [MC.get_dtypes_display()]
+
+    @app.callback(MC.get_OutputsGraphOptions(),MC.get_InputsGraphOptions(),prevent_initial_call=True)
+    def callback_GraphOptions(nclicks):
+        return [1]
 
     @app.callback(MC.get_Outputs_custom_datetime(),MC.get_Inputs_custom_datetime(),prevent_initial_call=True)
     def update_dtypes(dtype):
