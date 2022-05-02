@@ -290,7 +290,7 @@ class Dashboard:
 
 
     def init_constants(self):
-        self.dtypes= {
+        self.dtypes_old= {
             'MasterJobId' : str ,
             'jobid' : str ,
             'jobindex' : float ,
@@ -447,25 +447,34 @@ class Dashboard:
 
 
     def read_file_in_df(self,  FileInfo):
-        dtypes=self.loadMetadata(self.default_df_index,'ColumnsDataTypes')
         mtime = os.path.getmtime(FileInfo['Path'])
         if mtime > FileInfo['LastModified']:
             Info("Reading file " + str(FileInfo['Path']) + " skiprows=" + str(FileInfo['SkipRows'])  )
             FileInfo['LastModified'] = mtime
+            dtypes=self.loadMetadata(self.default_df_index,'ColumnsDataTypes')
+            dates_col=[]
+            if dtypes is not None:
+                for col in dtypes:
+                    if dtypes[col]=='datetime64[ns]':
+                        print("Updating Dtypes %s" % col )
+                        dtypes[col]='object'
+                        dates_col.append(col)
+            pprint(dtypes)
+            pprint(dates_col)
             if FileInfo['isXlsx']:
                 if FileInfo['Sheet']==None:
                     raise ValueError("SheetName is not defined")
-                df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'],dtype=dtypes)
+                df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'],dtype=dtypes,parse_dates=dates_col)
                 df.columns = df.columns.astype(str)
 
                 #DebugMsg3("DF head=", df.head())
             else:
-                DebugMsg3("Reading File123")
+                DebugMsg3("Reading File1723")
                 sep= FileInfo['Sheet']
                 if FileInfo['Sheet']==None:
                     raise ValueError("Separator is not defined")
                     
-                df=pd.read_csv(FileInfo['Path'], sep=self.separatorMap[sep],skiprows=FileInfo['SkipRows'],dtype=dtypes)
+                df=pd.read_csv(FileInfo['Path'], sep=self.separatorMap[sep],skiprows=FileInfo['SkipRows'],dtype=dtypes,parse_dates=dates_col)
                 df.columns = df.columns.astype(str)
 
             col_ren={}
@@ -480,7 +489,8 @@ class Dashboard:
             df = df.replace(replace_dict)
             df = df.convert_dtypes(convert_integer=False,convert_floating=False,convert_string=False)
             df = df.replace({pd.NA: np.nan})
-            self.DF_read_copy[FileInfo['Path']] = self.update_dtypes(df)
+#            self.DF_read_copy[FileInfo['Path']] = self.update_dtypes(df)
+            self.DF_read_copy[FileInfo['Path']] = df
             
         else:
             Info("File not changed")
@@ -1079,7 +1089,7 @@ class Dashboard:
             elif filter != "":
                 if (re.match("^\s*\S*\s*=",filter_expr) and (not re.match("^\s*\S*\s*=\s*=",filter_expr) )) :
                     df=pd.eval(filter_expr,target=df)
-                    DebugMsg("df= " + df)
+                    DebugMsg("df= " , df)
                     for col in df.columns:
                         if col not in self.df[df_index].columns :
                             if (not self.aggregate) or (not update_prev):
@@ -2801,7 +2811,7 @@ if __name__ == "__main__":
         return [0]
 
     @app.callback(MC.get_Outputs_display_dtypes(),MC.get_Inputs_display_dtypes(),prevent_initial_call=True)
-    def update_dtypes(nclicks):
+    def update_dtypes_disp(nclicks):
         return [MC.get_dtypes_display()]
 
     @app.callback(MC.get_Outputs_custom_datetime(),MC.get_Inputs_custom_datetime(),prevent_initial_call=True)
@@ -2849,8 +2859,8 @@ if __name__ == "__main__":
         return str(get_str_dtype(sample_df, col)) + " # "  +str(col)
 
 
-    waitress.serve(app.server, host="0.0.0.0", port=port,connection_limit=20)
+  #  waitress.serve(app.server, host="0.0.0.0", port=port,connection_limit=20)
     #update_output(1,None,0, 20, [], None,"",None,"",['mem_bucketed'],"Scatter",['CPU_TIME'],None,None,None,None,['refreshbtn', 'n_clicks'] )
 
     #app.run_server(debug=True,port=find_free_port())
-  #  app.run_server(debug=True,port=port)
+    app.run_server(debug=True,port=port)
