@@ -1460,7 +1460,8 @@ class Dashboard:
         divs.append(
             html.Div(
                 [
-                    html.Button("Load", id="btn_load", n_clicks=0,style=dict(display='inline-block',width='5%',height='100%',verticalAlign='top')),
+                    html.Button("Reload Previous State", id="btn_page_reload_previous", n_clicks=0,style=dict(display='inline-block',width='1%',height='100%',verticalAlign='top')),
+                    html.Button("Load", id="btn_load", n_clicks=0,style=dict(display='inline-block',width='4%',height='100%',verticalAlign='top')),
                     html.Div([
                     dcc.Input(
                         id="input_loadFileName",
@@ -2020,7 +2021,7 @@ class Dashboard:
 
     def get_InputsPageRefresh(self):
         Inputs = list()
-        Inputs.append(Input("hidden-page_refresh", "n_clicks"))
+        Inputs.append(Input("btn_page_reload_previous", "n_clicks"))
         return Inputs
 
 
@@ -2777,7 +2778,7 @@ if __name__ == "__main__":
     def updateDropDownOptions(clicks1,clicks2):
         return [MC.get_dropdown_values("df_index"),MC.get_dropdown_values("plot_index")]
 
-    @app.callback(MC.get_OutputsPageRefresh(),MC.get_InputsPageRefresh(),prevent_initial_call=False)
+    @app.callback(MC.get_OutputsPageRefresh(),MC.get_InputsPageRefresh(),prevent_initial_call=True)
     def page_refresh(clicks):
         MC.loadLastLoadedFiles()
         #return [1,dash.no_update] 
@@ -2790,7 +2791,7 @@ if __name__ == "__main__":
         else :
             return ["Separator",MC.get_dropdown_values("AvailableSeparators")]
     
-    @app.callback(MC.get_Outputschk_isXlsx2(),MC.get_Inputschk_isXlsx2(),prevent_initial_call=False)
+    @app.callback(MC.get_Outputschk_isXlsx2(),MC.get_Inputschk_isXlsx2(),prevent_initial_call=True)
     def Xlsx2(isxlsx,filepath):
         if 'True' in isxlsx :
             return ["SheetName",get_xlsx_sheet_names(filepath,return_As_dropdown_options=True)]
