@@ -1,5 +1,5 @@
+#! /usr/bin/env python
 #! /usr/bin/arch -x86_64 /usr/bin/env python
-##! /usr/bin/env python
 
 from logging import error
 import dash
@@ -336,7 +336,7 @@ class Dashboard:
 
 
 		DebugMsg2("Inside def init_constants(self):")
-		self.dtypes= {
+		self.dtypes_old= {
 			'MasterJobId' : str ,
 			'jobid' : str ,
 			'jobindex' : float ,
@@ -491,24 +491,26 @@ class Dashboard:
 
 		self.GraphParamsOrder = self.GraphParamsOrder2 + [ "Secondary_Legends"]
 
-
 	def read_file_in_df(self,  FileInfo):
-
-
-		DebugMsg2("Inside def read_file_in_df(self,  FileInfo):")
-		dtypes=self.loadMetadata(self.default_df_index,'ColumnsDataTypes')
 		mtime = os.path.getmtime(FileInfo['Path'])
 		if mtime > FileInfo['LastModified']:
+			Info("Reading file " + str(FileInfo['Path']) + " skiprows=" + str(FileInfo['SkipRows'])  )
 			FileInfo['LastModified'] = mtime
+			dtypes=self.loadMetadata(self.default_df_index,'ColumnsDataTypes')
+			dates_col=[]
+			if dtypes is not None:
+				for col in dtypes:
+					if dtypes[col]=='datetime64[ns]':
+						print("Updating Dtypes %s" % col )
+						dtypes[col]='object'
+						dates_col.append(col)
 			if FileInfo['isXlsx']:
 				if FileInfo['Sheet']==None:
 					raise ValueError("SheetName is not defined")
 				pickle_filename=  FileInfo['Path'] + "." + FileInfo['Sheet'] + ".pickle"  
 				if os.path.exists(pickle_filename):  
-					Info("Reading file " + pickle_filename  )
 					df=pd.read_pickle(pickle_filename)
 				else:
-					Info("Reading file " + str(FileInfo['Path']) + " skiprows=" + str(FileInfo['SkipRows'])  )
 					df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'],dtype=dtypes)
 					df=pd.to_pickle(pickle_filename)
 
@@ -516,13 +518,12 @@ class Dashboard:
 
 				#DebugMsg3("DF head=", df.head())
 			else:
-				DebugMsg3("Reading File123")
+				DebugMsg3("Reading File1723")
 				sep= FileInfo['Sheet']
 				if FileInfo['Sheet']==None:
 					raise ValueError("Separator is not defined")
 					
-				Info("Reading file " + FileInfo['Path'])
-				df=pd.read_csv(FileInfo['Path'], sep=self.separatorMap[sep],skiprows=FileInfo['SkipRows'],dtype=dtypes)
+				df=pd.read_csv(FileInfo['Path'], sep=self.separatorMap[sep],skiprows=FileInfo['SkipRows'],dtype=dtypes,parse_dates=dates_col)
 				df.columns = df.columns.astype(str)
 
 			col_ren={}
@@ -537,7 +538,8 @@ class Dashboard:
 			df = df.replace(replace_dict)
 			df = df.convert_dtypes(convert_integer=False,convert_floating=False,convert_string=False)
 			df = df.replace({pd.NA: np.nan})
-			self.DF_read_copy[FileInfo['Path']] = self.update_dtypes(df)
+#            self.DF_read_copy[FileInfo['Path']] = self.update_dtypes(df)
+			self.DF_read_copy[FileInfo['Path']] = df
 			
 		else:
 			Info("File not changed")
@@ -1728,6 +1730,7 @@ class Dashboard:
 		divs.append(
 			html.Div(
 				[
+					html.Button("Reload Previous State", id="btn_page_reload_previous", n_clicks=0,style=dict(display='inline-block',width='1%',height='100%',verticalAlign='top')),
 					html.Button("Load", id="btn_load", n_clicks=0,style=dict(display='inline-block',width='5%',height='100%',verticalAlign='top')),
 					html.Div([
 					dcc.Input(
@@ -2438,7 +2441,7 @@ class Dashboard:
 
 		DebugMsg2("Inside def get_InputsPageRefresh(self):")
 		Inputs = list()
-		Inputs.append(Input("hidden-page_refresh", "n_clicks"))
+		Inputs.append(Input("btn_page_reload_previous", "n_clicks"))
 		return Inputs
 
 
@@ -4079,7 +4082,7 @@ if __name__ == "__main__":
 		DebugMsg2("###Callback updateDropDownOptions(clicks1,clicks2):", dash.callback_context.triggered[0]['prop_id'])
 		return [MC.get_dropdown_values("df_index"),MC.get_dropdown_values("plot_index")]
 
-	@app.callback(MC.get_OutputsPageRefresh(),MC.get_InputsPageRefresh(),prevent_initial_call=False)
+	@app.callback(MC.get_OutputsPageRefresh(),MC.get_InputsPageRefresh(),prevent_initial_call=True)
 	def page_refresh(clicks):
 		DebugMsg2("###############################")
 		DebugMsg2("###Callback page_refresh(clicks):", dash.callback_context.triggered[0]['prop_id'])
