@@ -59,7 +59,7 @@ def DebugMsg(msg1,msg2=None,printmsg=True):
 		print(msg1,end=" " )
 		if msg2 is not None:
 			print(msg2)
-		print("")
+		print("",flush=True)
 
 def DebugMsg2(msg1,msg2=None,printmsg=True):
 	DebugMsg(msg1,msg2,printmsg)
@@ -508,11 +508,12 @@ class Dashboard:
 				if FileInfo['Sheet']==None:
 					raise ValueError("SheetName is not defined")
 				pickle_filename=  FileInfo['Path'] + "." + FileInfo['Sheet'] + ".pickle"  
-				if os.path.exists(pickle_filename):  
+				df=None
+				if os.path.exists(pickle_filename) and mtime < os.path.getmtime(pickle_filename):  
 					df=pd.read_pickle(pickle_filename)
 				else:
 					df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'],dtype=dtypes)
-					df=pd.to_pickle(pickle_filename)
+					df=df.to_pickle(pickle_filename)
 
 				df.columns = df.columns.astype(str)
 
@@ -575,6 +576,7 @@ class Dashboard:
 				filelist=json.load(json_file)  
 			if "LastLoadedFile" in filelist:
 				for df_index in filelist["LastLoadedFile"]:
+					print(df_index,flush=True)
 					name=filelist["LastLoadedFile"][df_index]
 					self.DataFile[df_index]=filelist["recent"][name]
 					if os.path.exists(self.DataFile[df_index]['Path']):
@@ -1731,7 +1733,7 @@ class Dashboard:
 			html.Div(
 				[
 					html.Button("Reload Previous State", id="btn_page_reload_previous", n_clicks=0,style=dict(display='inline-block',width='1%',height='100%',verticalAlign='top')),
-					html.Button("Load", id="btn_load", n_clicks=0,style=dict(display='inline-block',width='5%',height='100%',verticalAlign='top')),
+					html.Button("Load", id="btn_load", n_clicks=0,style=dict(display='inline-block',width='4%',height='100%',verticalAlign='top')),
 					html.Div([
 					dcc.Input(
 						id="input_loadFileName",
@@ -2090,8 +2092,8 @@ class Dashboard:
 
 	def create_conditional_style(self):
 
-		DebugMsg2("Inside def create_conditional_style(self):")
 		df=self.table_df
+		DebugMsg2("Inside def create_conditional_style(self):" + str(df.shape))
 		style=[]
 		for col in df.columns:
 			name_length = len(str(col))
@@ -2446,8 +2448,6 @@ class Dashboard:
 
 
 	def callbackPageRefresh(self):
-
-
 		DebugMsg2("Inside def callbackPageRefresh(self):")
 		DebugMsg("Page Refresh")
 		self.initialize_GraphParams()
@@ -2853,7 +2853,6 @@ class Dashboard:
 		return Inputs
 
 	def callback_BE(self):
-
 		DebugMsg2("Inside def callback_BE(self):")
 		if self.GraphParams["Primary_Yaxis"] is not None and len(self.GraphParams['Primary_Yaxis'])>0:
 			for col in ["Primary_Legends","Scatter_Labels","Secondary_Legends"]:
@@ -2877,7 +2876,6 @@ class Dashboard:
 						continue
 					self.plot_df[df_index]=self.filtered_df[df_index] 
 			
-			self.update_column_names()
 			self.set_Graphid()
 			if self.DataFile[self.default_df_index] is not None:
 				self.updateMetadata("LastGraph",self.GraphParams,self.default_df_index)
@@ -2889,6 +2887,7 @@ class Dashboard:
 			self.initialize_figs()
 		
 		
+		self.update_column_names()
 		retval=[1,1]
 		retval.append(MC.get_dropdown_values("Secondary_Legends"))
 		return retval
@@ -2948,7 +2947,6 @@ class Dashboard:
 		return Inputs
 
 	def get_OutputsTableColsUpdate(self):
-
 		DebugMsg2("Inside def get_OutputsTableColsUpdate(self):")
 		Outputs = list()
 		Outputs.append(Output("table-paging-with-graph", "columns"))
