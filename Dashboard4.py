@@ -2885,6 +2885,8 @@ class Dashboard:
 		else:
 			DebugMsg2("Initializing Figs")
 			self.initialize_figs()
+			for df_index in self.df_indexes:
+				self.plot_df[df_index]=self.filtered_df[df_index]
 		
 		
 		self.update_column_names()
