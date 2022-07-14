@@ -86,6 +86,30 @@ def get_xlsx_sheet_names(xlsx_file,return_As_dropdown_options=False):
 		return sheets
 
 
+def read_rdb_in_df(rdb_file):
+    print ("Reading "  +rdb_file)
+    keep_lines=list()
+    lineno=0
+    valid_lineno=0
+    head=[]
+    with open(rdb_file) as f:
+        for line in f:
+            lineno=lineno+1
+            if re.search("^\s*#",line) or re.search("^\s*$",line):
+                pass
+            else:
+                line = line.strip('\n')
+                valid_lineno=valid_lineno+1
+                if valid_lineno==1:
+                    head=(["__LINENO"] + line.split("\t"))
+                elif valid_lineno ==2:
+                    pass
+                else:
+                    keep_lines.append([lineno] + line.split("\t"))
+    df=pd.DataFrame(keep_lines,columns=head)
+    df.index=df['__LINENO']
+    df=df.drop(['__LINENO'],axis=1)
+    return df
 
 # assume you have a "long-form" data frame
 # see https://plotly.com/python/px-arguments/ for more options
@@ -240,6 +264,7 @@ class Dashboard:
 				jsondata=jsondata[header]
 			else:
 				jsondata=None
+		DebugMsg2("Done def loadMetadata(self,df_index,header=None):")
 		return jsondata
 
 	def updateMetadata(self,header,data,df_index):
@@ -486,12 +511,14 @@ class Dashboard:
 			 ";<semi-colon>": ";",
 			 ":<colon>": ":",
 			 "#<hash>": "#",
+			 "rdb": "rdb",
 		}
 
 
 		self.GraphParamsOrder = self.GraphParamsOrder2 + [ "Secondary_Legends"]
 
 	def read_file_in_df(self,  FileInfo):
+		DebugMsg2("Inside def read_file_in_df(self,  FileInfo):")
 		mtime = os.path.getmtime(FileInfo['Path'])
 		if mtime > FileInfo['LastModified']:
 			Info("Reading file " + str(FileInfo['Path']) + " skiprows=" + str(FileInfo['SkipRows'])  )
@@ -501,7 +528,7 @@ class Dashboard:
 			if dtypes is not None:
 				for col in dtypes:
 					if dtypes[col]=='datetime64[ns]':
-						print("Updating Dtypes %s" % col )
+						Info("Updating Dtypes %s" % col )
 						dtypes[col]='object'
 						dates_col.append(col)
 			if FileInfo['isXlsx']:
@@ -510,10 +537,14 @@ class Dashboard:
 				pickle_filename=  FileInfo['Path'] + "." + FileInfo['Sheet'] + ".pickle"  
 				df=None
 				if os.path.exists(pickle_filename) and mtime < os.path.getmtime(pickle_filename):  
+					DebugMsg2("pd.read_pickle")
 					df=pd.read_pickle(pickle_filename)
 				else:
+					DebugMsg2("pd.read_excel")
 					df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'],dtype=dtypes)
-					df=df.to_pickle(pickle_filename)
+					DebugMsg2("Saving Pickle")
+					df.to_pickle(pickle_filename)
+					DebugMsg2("Saving Pickle Done")
 
 				df.columns = df.columns.astype(str)
 
@@ -524,7 +555,18 @@ class Dashboard:
 				if FileInfo['Sheet']==None:
 					raise ValueError("Separator is not defined")
 					
-				df=pd.read_csv(FileInfo['Path'], sep=self.separatorMap[sep],skiprows=FileInfo['SkipRows'],dtype=dtypes,parse_dates=dates_col)
+
+				pickle_filename=  FileInfo['Path'] + ".pickle"  
+				if os.path.exists(pickle_filename) and mtime < os.path.getmtime(pickle_filename):  
+					DebugMsg2("pd.read_pickle")
+					df=pd.read_pickle(pickle_filename)
+				else:
+					DebugMsg2("pd.read_csv")
+					if sep == "rdb" :
+						df=read_rdb_in_df(FileInfo['Path'])
+					else:
+						df=pd.read_csv(FileInfo['Path'], sep=self.separatorMap[sep],skiprows=FileInfo['SkipRows'],dtype=dtypes,parse_dates=dates_col)
+					df.to_pickle(pickle_filename)
 				df.columns = df.columns.astype(str)
 
 			col_ren={}
@@ -536,9 +578,12 @@ class Dashboard:
 			if FileInfo['ReplaceWithNan'] is not None:
 				for nan_value in FileInfo['ReplaceWithNan'].split(","):
 					replace_dict[nan_value]=np.nan
-			df = df.replace(replace_dict)
+				df = df.replace(replace_dict)
+			DebugMsg2("Converting Dtypes")
 			df = df.convert_dtypes(convert_integer=False,convert_floating=False,convert_string=False)
+			DebugMsg2("Converting Dtypes Done")
 			df = df.replace({pd.NA: np.nan})
+			DebugMsg2("Replacing Nan")
 #            self.DF_read_copy[FileInfo['Path']] = self.update_dtypes(df)
 			self.DF_read_copy[FileInfo['Path']] = df
 			
@@ -550,13 +595,14 @@ class Dashboard:
 	def getDataFileName(self,datafile):
 		
 	
-		DebugMsg2("Inside def getDataFileName(self,datafile):")
+		DebugMsg2("Inside 2 def getDataFileName(self,datafile):")
 		name= (datafile['Path']  + "#" 
 				+ str(datafile['isXlsx'])  + "#" 
 				+ str(datafile['Sheet'])  + "#" 
 				+ str(datafile['SkipRows'])  + "#" 
 				+ str(datafile['ReplaceWithNan'])  + "#" 
 			  )
+		DebugMsg2("Done def getDataFileName(self,datafile):")
 		return name
 
 	def update_df(self,Datafile,df_index):
@@ -576,13 +622,13 @@ class Dashboard:
 				filelist=json.load(json_file)  
 			if "LastLoadedFile" in filelist:
 				for df_index in filelist["LastLoadedFile"]:
-					print(df_index,flush=True)
+					Info(df_index,flush=True)
 					name=filelist["LastLoadedFile"][df_index]
 					self.DataFile[df_index]=filelist["recent"][name]
 					if os.path.exists(self.DataFile[df_index]['Path']):
 						self.update_df(self.DataFile[df_index],df_index)
 					else:
-						print(self.DataFile[df_index]['path'] + " not exists")
+						Info(self.DataFile[df_index]['path'] + " not exists")
 
 	
 	def updateRecentFiles(self,df_index):
