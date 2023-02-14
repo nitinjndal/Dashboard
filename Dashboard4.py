@@ -32,6 +32,7 @@ from tabulate import tabulate
 from collections import OrderedDict
 import socket
 from contextlib import closing
+import sqlite3
 
 from pandas.api.types import is_string_dtype
 from pandas.api.types import is_numeric_dtype
@@ -84,6 +85,57 @@ def get_xlsx_sheet_names(xlsx_file,return_As_dropdown_options=False):
 		return doptions
 	else:
 		return sheets
+
+def get_sqlite_table_names(sqlite_db_path,return_As_dropdown_options=False):
+	tables=[]
+	try:
+		# Making a connection between sqlite3
+		# database and Python Program
+		sqliteConnection = sqlite3.connect(sqlite_db_path)
+		# Getting all tables from sqlite_master
+		sql_query = """SELECT name FROM sqlite_master
+		WHERE type='table';"""
+
+		# Creating cursor object using connection object
+		cursor = sqliteConnection.cursor()
+		
+		# executing our sql query
+		cursor.execute(sql_query)
+		
+		# printing all tables list
+		tables=cursor.fetchall()
+	
+	except sqlite3.Error as error:
+		print("Failed to execute the above query", error)
+		
+	finally:
+	
+		# Inside Finally Block, If connection is
+		# open, we need to close it
+		if sqliteConnection:
+			
+			# using close() method, we will close
+			# the connection
+			sqliteConnection.close()
+			
+			# After closing connection object, we
+			# will print "the sqlite connection is
+			# closed"
+			print("the sqlite connection is closed")
+
+	if return_As_dropdown_options:
+		doptions=[]
+		for table in tables:
+			doptions.append({"label": table[0], "value": table[0]})
+		return doptions
+	return tables
+
+def sqlite_table_to_df(sqlite_db_path, table_name):
+	sqliteConnection = sqlite3.connect(sqlite_db_path)
+	cnx = sqlite3.connect("/arm/projectscratch/pipd/umc/l22ulpull/mem/sram_sp_hde_hvtullp_mvt/workspace/da/da_pdk_70_new/data/eos/da/database/eosDb")
+	df = pd.read_sql_query("SELECT * FROM %s " % table_name, cnx)
+	sqliteConnection.close()
+	return df
 
 
 def read_rdb_in_df(rdb_file):
@@ -202,14 +254,14 @@ class Dashboard:
 		self.initialize_figs()
 		#self.update_graph()
 
-	def setDataFile(self,datafile,isxlsx,sheetname,skiprows,replace_with_nan,df_index):
-
+	def setDataFile(self,datafile,fileFormat,fileLoadOptions,skiprows,replace_with_nan,df_index):
 		DebugMsg2("Inside def setDataFile(self,datafile,isxlsx,sheetname,skiprows,replace_with_nan,df_index):")
+		DebugMsg2("fileFormat=",fileFormat)
 		if datafile is not None:
 			datafile1=os.path.abspath(datafile)
 			self.DataFile[df_index] = {'Path': datafile1,
-							'isXlsx':isxlsx,
-							'Sheet': sheetname,
+							'FileFormat':fileFormat,
+							'FileLoadOptions': fileLoadOptions,
 							'SkipRows': skiprows,
 							'ReplaceWithNan' : replace_with_nan, 
 							'LastModified' : 0 ,
@@ -519,6 +571,7 @@ class Dashboard:
 
 	def read_file_in_df(self,  FileInfo):
 		DebugMsg2("Inside def read_file_in_df(self,  FileInfo):")
+		DebugMsg2("FileInfo['FileFormat']",FileInfo['FileFormat'])
 		mtime = os.path.getmtime(FileInfo['Path'])
 		if mtime > FileInfo['LastModified']:
 			Info("Reading file " + str(FileInfo['Path']) + " skiprows=" + str(FileInfo['SkipRows'])  )
@@ -531,17 +584,17 @@ class Dashboard:
 						Info("Updating Dtypes %s" % col )
 						dtypes[col]='object'
 						dates_col.append(col)
-			if FileInfo['isXlsx']:
-				if FileInfo['Sheet']==None:
+			if FileInfo['FileFormat']=="xlsx":
+				if FileInfo['FileLoadOptions']==None:
 					raise ValueError("SheetName is not defined")
-				pickle_filename=  FileInfo['Path'] + "." + FileInfo['Sheet'] + ".pickle"  
+				pickle_filename=  FileInfo['Path'] + "." + FileInfo['FileLoadOptions'] + ".pickle.gz"  
 				df=None
 				if os.path.exists(pickle_filename) and mtime < os.path.getmtime(pickle_filename):  
 					DebugMsg2("pd.read_pickle")
 					df=pd.read_pickle(pickle_filename)
 				else:
 					DebugMsg2("pd.read_excel")
-					df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['Sheet'],skiprows=FileInfo['SkipRows'],dtype=dtypes)
+					df=pd.read_excel(FileInfo['Path'],sheet_name=FileInfo['FileLoadOptions'],skiprows=FileInfo['SkipRows'],dtype=dtypes)
 					DebugMsg2("Saving Pickle")
 					df.to_pickle(pickle_filename)
 					DebugMsg2("Saving Pickle Done")
@@ -549,14 +602,25 @@ class Dashboard:
 				df.columns = df.columns.astype(str)
 
 				#DebugMsg3("DF head=", df.head())
+			elif FileInfo['FileFormat']=="sqldb":
+				if FileInfo['FileLoadOptions']==None:
+					raise ValueError("TableName is not defined")
+				df=None
+				DebugMsg2("pd.read_sql_query")
+
+				df=sqlite_table_to_df(FileInfo['Path'], table_name=FileInfo['FileLoadOptions'])
+
+				df.columns = df.columns.astype(str)
+
+				#DebugMsg3("DF head=", df.head())
 			else:
 				DebugMsg3("Reading File1723")
-				sep= FileInfo['Sheet']
-				if FileInfo['Sheet']==None:
+				sep= FileInfo['FileLoadOptions']
+				if FileInfo['FileLoadOptions']==None:
 					raise ValueError("Separator is not defined")
 					
 
-				pickle_filename=  FileInfo['Path'] + ".pickle"  
+				pickle_filename=  FileInfo['Path'] + ".pickle.gz"  
 				if os.path.exists(pickle_filename) and mtime < os.path.getmtime(pickle_filename):  
 					DebugMsg2("pd.read_pickle")
 					df=pd.read_pickle(pickle_filename)
@@ -597,8 +661,8 @@ class Dashboard:
 	
 		DebugMsg2("Inside 2 def getDataFileName(self,datafile):")
 		name= (datafile['Path']  + "#" 
-				+ str(datafile['isXlsx'])  + "#" 
-				+ str(datafile['Sheet'])  + "#" 
+				+ str(datafile['FileFormat'])  + "#" 
+				+ str(datafile['FileLoadOptions'])  + "#" 
 				+ str(datafile['SkipRows'])  + "#" 
 				+ str(datafile['ReplaceWithNan'])  + "#" 
 			  )
@@ -1453,6 +1517,12 @@ class Dashboard:
 			list_of_dic.append({"label": "data2", "value": "data2"})
 		elif type == "Functions":
 			list_of_dic.append({"label": "Add Tag", "value": "Add Tag"})
+		elif type == "InputFileFormats":
+			list_of_dic.append({"label": "text", "value": "text"})
+			list_of_dic.append({"label": "pickle", "value": "pickle"})
+			list_of_dic.append({"label": "sqldb", "value": "sqldb"})
+			list_of_dic.append({"label": "xlsx", "value": "xlsx"})
+			list_of_dic.append({"label": "json", "value": "json"})
 		else :
 			for col in df.columns:
 				list_of_dic.append({"label": col, "value": col})
@@ -1790,13 +1860,22 @@ class Dashboard:
 						placeholder='Path of file to load',
 						style=dict(height='80%' ,width='90%')
 						)],
-						style=dict(display=disp,width='30%',height='100%',verticalAlign='top')
+						style=dict(display=disp,width='27%',height='100%',verticalAlign='top')
 					),
-					dcc.Checklist(id='chk_isXlsx', options=[ {'label': 'xlsx', 'value': 'True'} ], value=[], style=dict(display='inline-block',width='3%',verticalAlign='top')) , 
-
+			#		dcc.Checklist(id='input_fileformat', options=[ {'label': 'xlsx', 'value': 'True'} ], value=[], style=dict(display='inline-block',width='3%',verticalAlign='top')) , 
 
 					html.Div(
-					children=dcc.Dropdown(id='input_loadFileSheetName',
+					children=dcc.Dropdown(id='input_fileformat',
+										value="text",
+										multi=False,
+										clearable=False,
+										options=self.get_dropdown_values("InputFileFormats")
+									),
+					style=dict(display=disp,width='6%',height='100%',verticalAlign='top')
+					),
+
+					html.Div(
+					children=dcc.Dropdown(id='input_loadFileOptions',
 										value="<tab>",
 										multi=False,
 										clearable=False,
@@ -1854,11 +1933,21 @@ class Dashboard:
 						placeholder='Path of file to load',
 						style=dict(height='80%' ,width='90%')
 						)],
-						style=dict(display=disp,width='30%',height='100%',verticalAlign='top')
+						style=dict(display=disp,width='27%',height='100%',verticalAlign='top')
 					),
-					dcc.Checklist(id='chk_isXlsx2', options=[ {'label': 'xlsx', 'value': 'True'} ], value=[], style=dict(display='inline-block',width='3%',verticalAlign='top')) , 
+				#	dcc.Checklist(id='input_fileformat2', options=[ {'label': 'xlsx', 'value': 'True'} ], value=[], style=dict(display='inline-block',width='3%',verticalAlign='top')) , 
+
 					html.Div(
-					children=dcc.Dropdown(id='input_loadFileSheetName2',
+					children=dcc.Dropdown(id='input_fileformat2',
+										value="text",
+										multi=False,
+										clearable=False,
+										options=self.get_dropdown_values("InputFileFormats")
+									),
+					style=dict(display=disp,width='6%',height='100%',verticalAlign='top')
+					),
+					html.Div(
+					children=dcc.Dropdown(id='input_loadFileOptions2',
 										value="<tab>",
 										multi=False,
 										clearable=False,
@@ -2265,9 +2354,6 @@ class Dashboard:
 
 	def get_Outputs5(self):
 
-
-
-
 		DebugMsg2("Inside def get_Outputs5(self):")
 		Outputs = list()
 		Outputs.append(Output("hidden-update_savedGraphs-from-savebtn", "n_clicks"))
@@ -2513,8 +2599,8 @@ class Dashboard:
 		Outputs.append(Output("btn_reset", "n_clicks"))
 		Outputs.append(Output("hidden-dropdown_options_dfindex1", "n_clicks"))
 		Outputs.append(Output("input_loadFileName", "value"))
-		Outputs.append(Output("chk_isXlsx", "value"))
-		Outputs.append(Output("input_loadFileSheetName", "value"))
+		Outputs.append(Output("input_fileformat", "value"))
+		Outputs.append(Output("input_loadFileOptions", "value"))
 		Outputs.append(Output("input_skiprows", "value"))
 		Outputs.append(Output("input_replaceWithNan", "value"))
 		return Outputs
@@ -2542,8 +2628,8 @@ class Dashboard:
 		Inputs = list()
 		Inputs.append(Input("btn_load", "n_clicks"))
 		Inputs.append(State("input_loadFileName", "value"))
-		Inputs.append(State("chk_isXlsx", "value"))
-		Inputs.append(State("input_loadFileSheetName", "value"))
+		Inputs.append(State("input_fileformat", "value"))
+		Inputs.append(State("input_loadFileOptions", "value"))
 		Inputs.append(State("input_skiprows", "value"))
 		Inputs.append(State("input_replaceWithNan", "value"))
 		return Inputs
@@ -2647,36 +2733,36 @@ class Dashboard:
 		Outputs.append(Output("lbl_current_dype", "children"))
 		return Outputs
 
-	def get_Inputschk_isXlsx(self):
+	def get_Inputsinput_fileformat(self):
 
-		DebugMsg2("Inside def get_Inputschk_isXlsx(self):")
+		DebugMsg2("Inside def get_Inputsinput_fileformat(self):")
 		Inputs = list()
-		Inputs.append(Input("chk_isXlsx", "value"))
+		Inputs.append(Input("input_fileformat", "value"))
 		Inputs.append(State("input_loadFileName", "value"))
 		return Inputs
 
-	def get_Outputschk_isXlsx(self):
+	def get_Outputsinput_fileformat(self):
 
-		DebugMsg2("Inside def get_Outputschk_isXlsx(self):")
+		DebugMsg2("Inside def get_Outputsinput_fileformat(self):")
 		Outputs = list()
-		Outputs.append(Output("input_loadFileSheetName", "placeholder"))
-		Outputs.append(Output("input_loadFileSheetName", "options"))
+		Outputs.append(Output("input_loadFileOptions", "placeholder"))
+		Outputs.append(Output("input_loadFileOptions", "options"))
 		return Outputs
 
-	def get_Inputschk_isXlsx2(self):
+	def get_Inputsinput_fileformat2(self):
 
-		DebugMsg2("Inside def get_Inputschk_isXlsx2(self):")
+		DebugMsg2("Inside def get_Inputsinput_fileformat2(self):")
 		Inputs = list()
-		Inputs.append(Input("chk_isXlsx2", "value"))
+		Inputs.append(Input("input_fileformat2", "value"))
 		Inputs.append(State("input_loadFileName2", "value"))
 		return Inputs
 
-	def get_Outputschk_isXlsx2(self):
+	def get_Outputsinput_fileformat2(self):
 
-		DebugMsg2("Inside def get_Outputschk_isXlsx2(self):")
+		DebugMsg2("Inside def get_Outputsinput_fileformat2(self):")
 		Outputs = list()
-		Outputs.append(Output("input_loadFileSheetName2", "placeholder"))
-		Outputs.append(Output("input_loadFileSheetName2", "options"))
+		Outputs.append(Output("input_loadFileOptions2", "placeholder"))
+		Outputs.append(Output("input_loadFileOptions2", "options"))
 		return Outputs
 
 	def get_OutputsLoadFileValue(self):
@@ -2696,15 +2782,13 @@ class Dashboard:
 
 
 
-	def is_same_file(self,DataFile,filename,isxlsx,sheetname,skiprows,replaceWithNan):
-
-
+	def is_same_file(self,DataFile,filename,fileFormat,fileLoadOptions,skiprows,replaceWithNan):
 
 		DebugMsg2("Inside def is_same_file(self,DataFile,filename,isxlsx,sheetname,skiprows,replaceWithNan):")
 		if ( 
 			filename == DataFile['Path'] and
-			isxlsx == DataFile['isXlsx'] and
-			sheetname == DataFile['Sheet'] and
+			fileFormat== DataFile['FileFormat'] and
+			fileLoadOptions == DataFile['FileLoadOptions'] and
 			skiprows == DataFile['SkipRows'] and
 			replaceWithNan == DataFile['ReplaceWithNan'] 
 		):
@@ -2714,8 +2798,8 @@ class Dashboard:
 
 
 
-	def callbackLoadFile(self,filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index,refreshDashboard):
-		DebugMsg2("Inside def callbackLoadFile(self,filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index,refreshDashboard):")
+	def callbackLoadFile(self,filename,fileFormat,fileLoadOptions,skiprows,replaceWithNan,df_index,refreshDashboard):
+		DebugMsg2("Inside def callbackLoadFile(self,filename, fileFormat,fileLoadOptions,skiprows,replaceWithNan,df_index,refreshDashboard):")
 		if skiprows is None or skiprows == "":
 			skiprows=0
 		skiprows=int(skiprows)
@@ -2725,9 +2809,9 @@ class Dashboard:
 				raise ValueError("Load the first file first")
 
 		DebugMsg2("Loading Done filename", filename)
-		if (self.DataFile[df_index] is None) or ( filename is None) or  (not self.is_same_file(self.DataFile[df_index],filename,isxlsx,sheetname,skiprows,replaceWithNan)):
+		if (self.DataFile[df_index] is None) or ( filename is None) or  (not self.is_same_file(self.DataFile[df_index],filename,fileFormat,fileLoadOptions,skiprows,replaceWithNan)):
 			DebugMsg2("reset dfindex=",df_index)
-			self.setDataFile(filename,isxlsx,sheetname,skiprows,replaceWithNan,df_index)
+			self.setDataFile(filename,fileFormat,fileLoadOptions,skiprows,replaceWithNan,df_index)
 
 			if refreshDashboard:
 				self.createDashboard(df_index,self.DashboardMode)
@@ -2740,8 +2824,8 @@ class Dashboard:
 		Outputs.append(Output("hidden-reset_collector2", "n_clicks"))
 		Outputs.append(Output("hidden-dropdown_options_dfindex2", "n_clicks"))
 		Outputs.append(Output("input_loadFileName2", "value"))
-		Outputs.append(Output("chk_isXlsx2", "value"))
-		Outputs.append(Output("input_loadFileSheetName2", "value"))
+		Outputs.append(Output("input_fileformat2", "value"))
+		Outputs.append(Output("input_loadFileOptions2", "value"))
 		Outputs.append(Output("input_skiprows2", "value"))
 		Outputs.append(Output("input_replaceWithNan2", "value"))
 		return Outputs
@@ -2786,8 +2870,8 @@ class Dashboard:
 		Inputs = list()
 		Inputs.append(Input("btn_load2", "n_clicks"))
 		Inputs.append(State("input_loadFileName2", "value"))
-		Inputs.append(State("chk_isXlsx2", "value"))
-		Inputs.append(State("input_loadFileSheetName2", "value"))
+		Inputs.append(State("input_fileformat2", "value"))
+		Inputs.append(State("input_loadFileOptions2", "value"))
 		Inputs.append(State("input_skiprows2", "value"))
 		Inputs.append(State("input_replaceWithNan2", "value"))
 		return Inputs
@@ -4030,32 +4114,25 @@ if __name__ == "__main__":
 		DebugMsg2("###Callback loadRecentFile(input_value):", dash.callback_context.triggered[0]['prop_id'])
 		df_index="1"
 		value=None
-		isxlsx1=False
 		if input_value is None:
-			MC.callbackLoadFile(input_value,isxlsx1,None,None,None,df_index,True)
-			return [dash.no_update,1,1,"",[],"<tab>","",""]
+			MC.callbackLoadFile(input_value,"text",None,None,None,df_index,True)
+			return [dash.no_update,1,1,"","text","<tab>","",""]
 		temp=input_value.split("#")
 		value=temp[0]
-		isxlsx=temp[1]
-		sheetname=temp[2]
+		fileFormat=temp[1]
+		fileLoadOptions=temp[2]
 		skiprows=temp[3]
 		replaceWithNaN=temp[4]
-		if isxlsx == "True":
-			isxlsx1=True
 		if value is not None:
-			MC.callbackLoadFile(value,isxlsx1,sheetname,skiprows,replaceWithNaN,df_index,True)
-			return [1,dash.no_update,1,value,[isxlsx],sheetname,skiprows,replaceWithNaN]
+			MC.callbackLoadFile(value,fileFormat,fileLoadOptions,skiprows,replaceWithNaN,df_index,True)
+			return [1,dash.no_update,1,value,fileFormat,fileLoadOptions,skiprows,replaceWithNaN]
 
 	@app.callback(MC.get_OutputsLoadFile(), MC.get_InputsLoadFile(),prevent_initial_call=True)
-	def loadFile(clicks,input_value,isxlsx,sheetname,skiprows,replaceWithNaN):
+	def loadFile(clicks,input_value,fileFormat,fileLoadOptions,skiprows,replaceWithNaN):
 		DebugMsg2("###Callback loadFile(clicks,input_value,isxlsx,sheetname,skiprows,replaceWithNaN):", dash.callback_context.triggered[0]['prop_id'])
-		isxlsx1=False
-		if 'True' in isxlsx :
-			isxlsx1=True
-			isxlsx=True
 		if input_value is not None:
 			df_index="1"
-			MC.callbackLoadFile(input_value,isxlsx1,sheetname,skiprows,replaceWithNaN,df_index,False)
+			MC.callbackLoadFile(input_value,fileFormat,fileLoadOptions,skiprows,replaceWithNaN,df_index,False)
 			return [MC.get_dropdown_values("input_recentlyLoadedFiles"), 1]
 
 	@app.callback(MC.get_OutputsLoadFileValue(), MC.get_InputsLoadFileValue(),prevent_initial_call=True)
@@ -4073,33 +4150,26 @@ if __name__ == "__main__":
 		DebugMsg2("###Callback loadRecentFile2(input_value):", dash.callback_context.triggered[0]['prop_id'])
 		df_index="2"
 		value=None
-		isxlsx1=False
 		if input_value is None:
-			MC.callbackLoadFile(input_value,isxlsx1,None,None,None,df_index,False)
+			MC.callbackLoadFile(input_value,"text",None,None,None,df_index,False)
 			return [dash.no_update,1,"",[],"<tab>","",""]
 
 		temp=input_value.split("#")
 		value=temp[0]
-		isxlsx=temp[1]
-		sheetname=temp[2]
+		fileFormat=temp[1]
+		fileLoadOptions=temp[2]
 		skiprows=temp[3]
 		replaceWithNaN=temp[4]
-		if isxlsx == "True":
-			isxlsx1=True
 		if value is not None:
-			MC.callbackLoadFile(value,isxlsx1,sheetname,skiprows,replaceWithNaN,df_index,False)
-			return [1,1,value,[isxlsx],sheetname,skiprows,replaceWithNaN]
+			MC.callbackLoadFile(value,fileFormat,fileLoadOptions,skiprows,replaceWithNaN,df_index,False)
+			return [1,1,value,fileFormat,fileLoadOptions,skiprows,replaceWithNaN]
 
 	@app.callback(MC.get_OutputsLoadFile2(), MC.get_InputsLoadFile2(),prevent_initial_call=True)
-	def loadFile2(clicks,input_value,isxlsx,sheetname,skiprows,replaceWithNaN):
+	def loadFile2(clicks,input_value,fileFormat,fileLoadOptions,skiprows,replaceWithNaN):
 		DebugMsg2("###Callback loadFile2(clicks,input_value,isxlsx,sheetname,skiprows,replaceWithNaN):", dash.callback_context.triggered[0]['prop_id'])
-		isxlsx1=False
-		if 'True' in isxlsx :
-			isxlsx1=True
-			isxlsx=True
 		if input_value is not None:
 			df_index="2"
-			MC.callbackLoadFile(input_value,isxlsx1,sheetname,skiprows,replaceWithNaN,df_index,False)
+			MC.callbackLoadFile(input_value,fileFormat,fileLoadOptions,skiprows,replaceWithNaN,df_index,False)
 			return [MC.get_dropdown_values("input_recentlyLoadedFiles"), 1]
 			
 	@app.callback(MC.get_OutputsLoadFileValue2(), MC.get_InputsLoadFileValue2(),prevent_initial_call=True)
@@ -4140,21 +4210,29 @@ if __name__ == "__main__":
 		#return [1,dash.no_update] 
 		return [1,1] 
 
-	@app.callback(MC.get_Outputschk_isXlsx(),MC.get_Inputschk_isXlsx(),prevent_initial_call=True)
-	def Xlsx(isxlsx,filepath):
-		DebugMsg2("###Callback Xlsx(isxlsx,filepath):", dash.callback_context.triggered[0]['prop_id'])
-		if 'True' in isxlsx :
+	@app.callback(MC.get_Outputsinput_fileformat(),MC.get_Inputsinput_fileformat(),prevent_initial_call=True)
+	def fileFormat(fileformat,filepath):
+		DebugMsg2("###Callback fileFormat(fileformat,filepath):", dash.callback_context.triggered[0]['prop_id'])
+		DebugMsg2("fileformat",fileformat)
+		if fileformat == "xlsx":
 			return ["SheetName",get_xlsx_sheet_names(filepath,return_As_dropdown_options=True)]
+		elif fileformat == "sqldb":
+			DebugMsg2("eqrew",get_sqlite_table_names(filepath,return_As_dropdown_options=True))
+			return ["TableName",get_sqlite_table_names(filepath,return_As_dropdown_options=True)]
 		else :
 			return ["Separator",MC.get_dropdown_values("AvailableSeparators")]
 	
-	@app.callback(MC.get_Outputschk_isXlsx2(),MC.get_Inputschk_isXlsx2(),prevent_initial_call=False)
-	def Xlsx2(isxlsx,filepath):
-		DebugMsg2("###Callback Xlsx2(isxlsx,filepath):", dash.callback_context.triggered[0]['prop_id'])
-		if 'True' in isxlsx :
+	@app.callback(MC.get_Outputsinput_fileformat2(),MC.get_Inputsinput_fileformat2(),prevent_initial_call=False)
+	def fileFormat2(fileformat,filepath):
+		DebugMsg2("###Callback fileFormat2(fileformat,filepath):", dash.callback_context.triggered[0]['prop_id'])
+		if fileformat == "xlsx":
 			return ["SheetName",get_xlsx_sheet_names(filepath,return_As_dropdown_options=True)]
+		elif fileformat == "sqldb":
+			DebugMsg2("eqrew",get_sqlite_table_names(filepath,return_As_dropdown_options=True))
+			return ["TableName",get_sqlite_table_names(filepath,return_As_dropdown_options=True)]
 		else :
 			return ["Separator",MC.get_dropdown_values("AvailableSeparators")]
+
 
 	@app.callback(MC.get_Outputs_update_dtype(),MC.get_Inputs_update_dtype(),prevent_initial_call=True)
 	def update_dtypes(nclicks,cols,new_dtype,custom_datetime_fmt):
