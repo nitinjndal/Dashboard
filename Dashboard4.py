@@ -54,7 +54,7 @@ print("############################################")
 debug=False
 
 def DebugMsg(msg1,msg2=None,printmsg=True):
-	if debug and printmsg:
+	if debug or printmsg:
 		print(dt.datetime.now().strftime("%c"),end=" " )
 		print(msg1,end=" " )
 		if msg2 is not None:
@@ -622,13 +622,16 @@ class Dashboard:
 				filelist=json.load(json_file)  
 			if "LastLoadedFile" in filelist:
 				for df_index in filelist["LastLoadedFile"]:
-					Info(df_index,flush=True)
+					Info(df_index)
 					name=filelist["LastLoadedFile"][df_index]
 					self.DataFile[df_index]=filelist["recent"][name]
 					if os.path.exists(self.DataFile[df_index]['Path']):
 						self.update_df(self.DataFile[df_index],df_index)
 					else:
-						Info(self.DataFile[df_index]['path'] + " not exists")
+						if 'path' in self.DataFile[df_index]:
+							Info(self.DataFile[df_index]['path'] + " not exists")
+						else:
+							Info("Path not exists in  self.DataFile[" + str(df_index) + "]")
 
 	
 	def updateRecentFiles(self,df_index):
